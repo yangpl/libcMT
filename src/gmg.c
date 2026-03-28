@@ -1607,7 +1607,7 @@ void f_cycle(gmg_t *gmg, int lev)
   if(lev==lmax-1){//coarsest grid, direct solve or smoothing
     n = 3*(gmg[lev].n1+1)*(gmg[lev].n2+1)*(gmg[lev].n3+1);	
     memset(&gmg[lev].u[0][0][0][0], 0, n*sizeof(complex));
-  }else{
+  }else if(gmg[lev+1].sc[0]*gmg[lev+1].sc[1]*gmg[lev+1].sc[2]>1){
     residual(gmg, lev);//residual r=f-Au at lev-th level
     if(cycleopt==2 && lev==0){//compute the norm of the residual vector at 1st iteration
       n = 3*(gmg[lev].n1+1)*(gmg[lev].n2+1)*(gmg[lev].n3+1);
