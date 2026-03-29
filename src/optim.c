@@ -30,29 +30,7 @@ static bool optim_allocate_workspace(optim_t *opt)
          opt->sk && opt->yk;
 }
 
-static void optim_print_header(const optim_t *opt)
-{
-  if (!opt->verb) {
-    return;
-  }
-  printf("method: %s\n", optim_method_name(opt->method));
-  printf("dimension: %d\n", opt->n);
-  printf("l-BFGS memory length: %d\n", opt->npair);
-  printf("maximum iterations: %d\n", opt->niter);
-  printf("gradient tolerance: %3.2e\n", opt->tol);
-  printf("maximum line-search iterations: %d\n", opt->nls);
-  printf("initial step length: alpha=%g\n", opt->alpha0);
-}
 
-static void optim_log_iteration(FILE *fp, optim_t *opt)
-{
-  if (!fp) {
-    return;
-  }
-  fprintf(fp, "%6d %14.6e %14.6e %14.6e %10.4e %6d %8d\n",
-          opt->iter, opt->fk, opt->fk / opt->f0, opt->gk_norm,
-          opt->alpha, opt->ils, opt->igrad);
-}
 
 static void optim_choose_direction(optim_t *opt, optim_Hv Hv)
 {
@@ -277,12 +255,60 @@ void boundx(float *x, int n, const float *xmin, const float *xmax)
   }
 }
 
+static float optim_initial_step(int n, const float *x, const float *d, const optim_t *opt)
+{
+  int i;
+  float step = (opt->alpha > 0.0f) ? opt->alpha : opt->alpha0;
+  float max_step = FLT_MAX;
+  float max_abs_d = 0.0f;
+  const float target_max_update = 0.25f;
+
+  for (i = 0; i < n; ++i) {
+    float abs_di = fabsf(d[i]);
+    if (abs_di > max_abs_d) {
+      max_abs_d = abs_di;
+    }
+
+    if (!opt->bound || abs_di <= 0.0f) {
+      continue;
+    }
+
+    if (d[i] > 0.0f) {
+      float room = opt->xmax[i] - x[i];
+      if (room > 0.0f) {
+        max_step = MIN(max_step, room / d[i]);
+      }
+    } else {
+      float room = opt->xmin[i] - x[i];
+      if (room < 0.0f) {
+        max_step = MIN(max_step, room / d[i]);
+      }
+    }
+  }
+
+  if (max_abs_d > 0.0f) {
+    step = MIN(step, target_max_update / max_abs_d);
+  }
+  if (opt->bound && max_step < FLT_MAX) {
+    step = MIN(step, 0.95f * max_step);
+  }
+
+  if (!isfinite(step) || step <= 0.0f) {
+    step = (opt->alpha0 > 0.0f) ? opt->alpha0 : 1.0f;
+    if (max_abs_d > 0.0f) {
+      step = MIN(step, target_max_update / max_abs_d);
+    }
+  }
+
+  return step;
+}
+
 void line_search(int n, float *x, float *g, float *d, optim_fg fg, optim_t *opt)
 {
   int i;
   float alpha_lo = 0.0f;
   float alpha_hi = FLT_MAX;
-  float step = (opt->alpha > 0.0f) ? opt->alpha : opt->alpha0;
+  float step = 0.0f;
   float fcost = opt->fk;
   float gxd0 = dotprod(n, g, d);
   float armijo_rhs;
@@ -298,6 +324,7 @@ void line_search(int n, float *x, float *g, float *d, optim_fg fg, optim_t *opt)
     flipsign(n, g, d);
     gxd0 = dotprod(n, g, d);
   }
+  step = optim_initial_step(n, x, d, opt);
 
   opt->ls_fail = 1;
   for (opt->ils = 0; opt->ils < opt->nls; ++opt->ils) {
@@ -415,23 +442,30 @@ int optim_run(optim_t *opt, optim_fg fg, optim_Hv Hv)
   opt->g0_norm = l2norm(opt->n, opt->g);
   opt->gk_norm = opt->g0_norm;
 
-  optim_print_header(opt);
   if (opt->verb) {
+    printf("======= optimization starts ===========\n");
     fp = fopen("iterate.txt", "w");
     if (fp) {
+      setvbuf(fp, NULL, _IOLBF, 0);
       fprintf(fp, "================================================================================\n");
       fprintf(fp, "method: %s\n", optim_method_name(opt->method));
       fprintf(fp, "%6s %14s %14s %14s %10s %6s %8s\n",
               "iter", "fk", "fk/f0", "||gk||", "alpha", "nls", "ngrad");
       fprintf(fp, "================================================================================\n");
+      fflush(fp);
     }
   }
 
   for (opt->iter = 0; opt->iter < opt->niter; ++opt->iter) {
     opt->gk_norm = l2norm(opt->n, opt->g);
     if (opt->verb) {
-      printf("iteration=%d fk=%g ||g||=%g\n", opt->iter, opt->fk, opt->gk_norm);
-      optim_log_iteration(fp, opt);
+      printf("iteration=%d fk=%g ||g||=%g\n", opt->iter, opt->fk, opt->gk_norm);      
+      if (fp) {
+  	fprintf(fp, "%6d %14.6e %14.6e %14.6e %10.4e %6d %8d\n",
+          opt->iter, opt->fk, opt->fk / opt->f0, opt->gk_norm,
+          opt->alpha, opt->ils, opt->igrad);
+        fflush(fp);
+      }
     }
 
     if (opt->gk_norm <= opt->tol * MAX(1.0f, opt->g0_norm)) {
@@ -465,6 +499,7 @@ int optim_run(optim_t *opt, optim_fg fg, optim_Hv Hv)
       default:
         break;
     }
+    fflush(fp);
     fclose(fp);
   }
 

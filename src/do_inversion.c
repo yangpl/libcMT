@@ -47,7 +47,9 @@ int do_inversion(acq_t *acq, emf_t *emf)
   if(!getparint("bound", &opt.bound)) opt.bound = 1;
   if(!getparint("method", &opt.method)) opt.method = 1;
   if(!getparint("ncg", &opt.ncg)) opt.ncg = 5;
-  if(!getparfloat("tol", &opt.tol)) opt.tol = 1e-6f;
+  if(!getparfloat("gtol", &opt.tol)) {
+    if(!getparfloat("tol", &opt.tol)) opt.tol = 1e-6f;
+  }
   if(!getparfloat("c1", &opt.c1)) opt.c1 = 1e-4f;
   if(!getparfloat("c2", &opt.c2)) opt.c2 = 0.9f;
   if(!getparfloat("alpha", &opt.alpha0)) opt.alpha0 = 1.0f;

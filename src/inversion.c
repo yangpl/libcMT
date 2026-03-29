@@ -560,7 +560,8 @@ float inversion_grad(const float *x, float *g)
 
     if(inv_emf->verb) printf("-------- compute adjoint sources ---------\n");
     for(ifreq = 0; ifreq < inv_emf->nfreq; ++ifreq) fcost += compute_frequency_residual_and_sources(ifreq);
-
+    if(inv_emf->verb) printf("fcost=%g\n", fcost);
+    
     if(inv_emf->verb) printf("---------- adjoint modelling -----------\n");
     for(ifreq = 0; ifreq < inv_emf->nfreq; ++ifreq) solve_adjoint_frequency(ifreq, g);
 

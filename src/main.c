@@ -32,6 +32,11 @@ int main(int argc, char **argv)
   int mpi_rank = 0;
   int mpi_size = 1;
 
+  /* When stdout/stderr are redirected to log files, force line-buffered output so
+   * long forward/adjoint solves still emit progress messages immediately. */
+  setvbuf(stdout, NULL, _IOLBF, 0);
+  setvbuf(stderr, NULL, _IOLBF, 0);
+
   MPI_Init(&argc, &argv);
   MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
   MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
@@ -54,6 +59,8 @@ int main(int argc, char **argv)
     printf("            Copyright (c) Pengliang Yang             \n");
     printf("             Email: ypl.2100@gmail.com               \n");
     printf("=====================================================\n");
+    if(emf->mode==0) printf("Task: MT modelling\n");
+    if(emf->mode==1) printf("Task: MT inversion\n");
   }
 
   emf_init(emf);
