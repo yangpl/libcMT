@@ -36,6 +36,14 @@ void inject_adjoint_sources(acq_t *acq, int ifreq, int ipolar);
 
 void read_mt_data(acq_t *acq, emf_t *emf, char *fname);
 
+static float safe_inverse_weight(float scale)
+{
+  const float min_scale = 1e-30f;
+
+  if(scale < min_scale) scale = min_scale;
+  return 1.0f / scale;
+}
+
 static void model_from_vector(const float *x)
 {
   int i, j, k;
@@ -72,12 +80,40 @@ static void clear_inversion_pointers(emf_t *emf)
   emf->res_Zxy = NULL;
   emf->res_Zyx = NULL;
   emf->res_Zyy = NULL;
+  emf->w_Zxx = NULL;
+  emf->w_Zxy = NULL;
+  emf->w_Zyx = NULL;
+  emf->w_Zyy = NULL;
   emf->s_Ex = NULL;
   emf->s_Ey = NULL;
   emf->s_Hx = NULL;
   emf->s_Hy = NULL;
   emf->Efwd = NULL;
   emf->Eadj = NULL;
+}
+
+void inversion_init_data_weights(acq_t *acq, emf_t *emf)
+{
+  int ifreq, irec;
+
+  if(emf->w_Zxx == NULL || emf->w_Zxy == NULL || emf->w_Zyx == NULL || emf->w_Zyy == NULL) {
+    err("inversion data weights must be allocated before initialization");
+  }
+
+  for(ifreq = 0; ifreq < emf->nfreq; ++ifreq) {
+    for(irec = 0; irec < acq->nrec; ++irec) {
+      float abs_zxx = cabsf(emf->obs_Zxx[ifreq][irec]);
+      float abs_zxy = cabsf(emf->obs_Zxy[ifreq][irec]);
+      float abs_zyx = cabsf(emf->obs_Zyx[ifreq][irec]);
+      float abs_zyy = cabsf(emf->obs_Zyy[ifreq][irec]);
+      float cross = 0.03f * sqrtf(abs_zxy * abs_zyx);
+
+      emf->w_Zxy[ifreq][irec] = safe_inverse_weight(0.03f * abs_zxy);
+      emf->w_Zyx[ifreq][irec] = safe_inverse_weight(0.03f * abs_zyx);
+      emf->w_Zxx[ifreq][irec] = safe_inverse_weight(MAX(0.2f * abs_zxx, cross));
+      emf->w_Zyy[ifreq][irec] = safe_inverse_weight(MAX(0.2f * abs_zyy, cross));
+    }
+  }
 }
 
 /* Rank 0 reuses these arrays across objective evaluations, so each call starts by clearing
@@ -265,11 +301,13 @@ static double compute_frequency_residual_and_sources(int ifreq)
 {
   int irec;
   complex det, dZxxdu, dZxydu, dZyxdu, dZyydu;
-  complex cres_Zxx, cres_Zxy, cres_Zyx, cres_Zyy;
+  complex wcres_Zxx, wcres_Zxy, wcres_Zyx, wcres_Zyy;
   double fcost = 0.0;
   double det_abs;
 
   for(irec = 0; irec < inv_acq->nrec; ++irec) {
+    float wxx2, wxy2, wyx2, wyy2;
+
     det = inv_emf->d_Hx[0][ifreq][irec] * inv_emf->d_Hy[1][ifreq][irec]
         - inv_emf->d_Hy[0][ifreq][irec] * inv_emf->d_Hx[1][ifreq][irec];
     det_abs = cabs(det);
@@ -289,63 +327,68 @@ static double compute_frequency_residual_and_sources(int ifreq)
     inv_emf->res_Zyx[ifreq][irec] = inv_emf->cal_Zyx[ifreq][irec] - inv_emf->obs_Zyx[ifreq][irec];
     inv_emf->res_Zyy[ifreq][irec] = inv_emf->cal_Zyy[ifreq][irec] - inv_emf->obs_Zyy[ifreq][irec];
 
-    cres_Zxx = conj(inv_emf->res_Zxx[ifreq][irec]);
-    cres_Zxy = conj(inv_emf->res_Zxy[ifreq][irec]);
-    cres_Zyx = conj(inv_emf->res_Zyx[ifreq][irec]);
-    cres_Zyy = conj(inv_emf->res_Zyy[ifreq][irec]);
+    wxx2 = inv_emf->w_Zxx[ifreq][irec] * inv_emf->w_Zxx[ifreq][irec];
+    wxy2 = inv_emf->w_Zxy[ifreq][irec] * inv_emf->w_Zxy[ifreq][irec];
+    wyx2 = inv_emf->w_Zyx[ifreq][irec] * inv_emf->w_Zyx[ifreq][irec];
+    wyy2 = inv_emf->w_Zyy[ifreq][irec] * inv_emf->w_Zyy[ifreq][irec];
+
+    wcres_Zxx = wxx2 * conj(inv_emf->res_Zxx[ifreq][irec]);
+    wcres_Zxy = wxy2 * conj(inv_emf->res_Zxy[ifreq][irec]);
+    wcres_Zyx = wyx2 * conj(inv_emf->res_Zyx[ifreq][irec]);
+    wcres_Zyy = wyy2 * conj(inv_emf->res_Zyy[ifreq][irec]);
     fcost += 0.5 * (
-        creal(cres_Zxx * inv_emf->res_Zxx[ifreq][irec]) +
-        creal(cres_Zxy * inv_emf->res_Zxy[ifreq][irec]) +
-        creal(cres_Zyx * inv_emf->res_Zyx[ifreq][irec]) +
-        creal(cres_Zyy * inv_emf->res_Zyy[ifreq][irec]));
+        creal(wcres_Zxx * inv_emf->res_Zxx[ifreq][irec]) +
+        creal(wcres_Zxy * inv_emf->res_Zxy[ifreq][irec]) +
+        creal(wcres_Zyx * inv_emf->res_Zyx[ifreq][irec]) +
+        creal(wcres_Zyy * inv_emf->res_Zyy[ifreq][irec]));
 
     dZxxdu =  inv_emf->d_Hy[1][ifreq][irec] / det;
     dZxydu = -inv_emf->d_Hx[1][ifreq][irec] / det;
     dZyxdu = 0.0;
     dZyydu = 0.0;
-    inv_emf->s_Ex[0][ifreq][irec] = -(cres_Zxx * dZxxdu + cres_Zxy * dZxydu + cres_Zyx * dZyxdu + cres_Zyy * dZyydu);
+    inv_emf->s_Ex[0][ifreq][irec] = -(wcres_Zxx * dZxxdu + wcres_Zxy * dZxydu + wcres_Zyx * dZyxdu + wcres_Zyy * dZyydu);
 
     dZxxdu = 0.0;
     dZxydu = 0.0;
     dZyxdu =  inv_emf->d_Hy[1][ifreq][irec] / det;
     dZyydu = -inv_emf->d_Hx[1][ifreq][irec] / det;
-    inv_emf->s_Ey[0][ifreq][irec] = -(cres_Zxx * dZxxdu + cres_Zxy * dZxydu + cres_Zyx * dZyxdu + cres_Zyy * dZyydu);
+    inv_emf->s_Ey[0][ifreq][irec] = -(wcres_Zxx * dZxxdu + wcres_Zxy * dZxydu + wcres_Zyx * dZyxdu + wcres_Zyy * dZyydu);
 
     dZxxdu = -inv_emf->cal_Zxx[ifreq][irec] * inv_emf->d_Hy[1][ifreq][irec] / det;
     dZxydu =  inv_emf->cal_Zxx[ifreq][irec] * inv_emf->d_Hx[1][ifreq][irec] / det;
     dZyxdu = -inv_emf->cal_Zyx[ifreq][irec] * inv_emf->d_Hy[1][ifreq][irec] / det;
     dZyydu =  inv_emf->cal_Zyx[ifreq][irec] * inv_emf->d_Hx[1][ifreq][irec] / det;
-    inv_emf->s_Hx[0][ifreq][irec] = -(cres_Zxx * dZxxdu + cres_Zxy * dZxydu + cres_Zyx * dZyxdu + cres_Zyy * dZyydu);
+    inv_emf->s_Hx[0][ifreq][irec] = -(wcres_Zxx * dZxxdu + wcres_Zxy * dZxydu + wcres_Zyx * dZyxdu + wcres_Zyy * dZyydu);
 
     dZxxdu = -inv_emf->cal_Zxy[ifreq][irec] * inv_emf->d_Hy[1][ifreq][irec] / det;
     dZxydu =  inv_emf->cal_Zxy[ifreq][irec] * inv_emf->d_Hx[1][ifreq][irec] / det;
     dZyxdu = -inv_emf->cal_Zyy[ifreq][irec] * inv_emf->d_Hy[1][ifreq][irec] / det;
     dZyydu =  inv_emf->cal_Zyy[ifreq][irec] * inv_emf->d_Hx[1][ifreq][irec] / det;
-    inv_emf->s_Hy[0][ifreq][irec] = -(cres_Zxx * dZxxdu + cres_Zxy * dZxydu + cres_Zyx * dZyxdu + cres_Zyy * dZyydu);
+    inv_emf->s_Hy[0][ifreq][irec] = -(wcres_Zxx * dZxxdu + wcres_Zxy * dZxydu + wcres_Zyx * dZyxdu + wcres_Zyy * dZyydu);
 
     dZxxdu = -inv_emf->d_Hy[0][ifreq][irec] / det;
     dZxydu =  inv_emf->d_Hx[0][ifreq][irec] / det;
     dZyxdu = 0.0;
     dZyydu = 0.0;
-    inv_emf->s_Ex[1][ifreq][irec] = -(cres_Zxx * dZxxdu + cres_Zxy * dZxydu + cres_Zyx * dZyxdu + cres_Zyy * dZyydu);
+    inv_emf->s_Ex[1][ifreq][irec] = -(wcres_Zxx * dZxxdu + wcres_Zxy * dZxydu + wcres_Zyx * dZyxdu + wcres_Zyy * dZyydu);
 
     dZxxdu = 0.0;
     dZxydu = 0.0;
     dZyxdu = -inv_emf->d_Hy[0][ifreq][irec] / det;
     dZyydu =  inv_emf->d_Hx[0][ifreq][irec] / det;
-    inv_emf->s_Ey[1][ifreq][irec] = -(cres_Zxx * dZxxdu + cres_Zxy * dZxydu + cres_Zyx * dZyxdu + cres_Zyy * dZyydu);
+    inv_emf->s_Ey[1][ifreq][irec] = -(wcres_Zxx * dZxxdu + wcres_Zxy * dZxydu + wcres_Zyx * dZyxdu + wcres_Zyy * dZyydu);
 
     dZxxdu =  inv_emf->cal_Zxx[ifreq][irec] * inv_emf->d_Hy[0][ifreq][irec] / det;
     dZxydu = -inv_emf->cal_Zxx[ifreq][irec] * inv_emf->d_Hx[0][ifreq][irec] / det;
     dZyxdu =  inv_emf->cal_Zyx[ifreq][irec] * inv_emf->d_Hy[0][ifreq][irec] / det;
     dZyydu = -inv_emf->cal_Zyx[ifreq][irec] * inv_emf->d_Hx[0][ifreq][irec] / det;
-    inv_emf->s_Hx[1][ifreq][irec] = -(cres_Zxx * dZxxdu + cres_Zxy * dZxydu + cres_Zyx * dZyxdu + cres_Zyy * dZyydu);
+    inv_emf->s_Hx[1][ifreq][irec] = -(wcres_Zxx * dZxxdu + wcres_Zxy * dZxydu + wcres_Zyx * dZyxdu + wcres_Zyy * dZyydu);
 
     dZxxdu =  inv_emf->cal_Zxy[ifreq][irec] * inv_emf->d_Hy[0][ifreq][irec] / det;
     dZxydu = -inv_emf->cal_Zxy[ifreq][irec] * inv_emf->d_Hx[0][ifreq][irec] / det;
     dZyxdu =  inv_emf->cal_Zyy[ifreq][irec] * inv_emf->d_Hy[0][ifreq][irec] / det;
     dZyydu = -inv_emf->cal_Zyy[ifreq][irec] * inv_emf->d_Hx[0][ifreq][irec] / det;
-    inv_emf->s_Hy[1][ifreq][irec] = -(cres_Zxx * dZxxdu + cres_Zxy * dZxydu + cres_Zyx * dZyxdu + cres_Zyy * dZyydu);
+    inv_emf->s_Hy[1][ifreq][irec] = -(wcres_Zxx * dZxxdu + wcres_Zxy * dZxydu + wcres_Zyx * dZyxdu + wcres_Zyy * dZyydu);
   }
 
   return fcost;
@@ -434,6 +477,10 @@ void inversion_init(acq_t *acq, emf_t *emf)
     emf->res_Zxy = alloc2complexf(acq->nrec, emf->nfreq);
     emf->res_Zyx = alloc2complexf(acq->nrec, emf->nfreq);
     emf->res_Zyy = alloc2complexf(acq->nrec, emf->nfreq);
+    emf->w_Zxx = alloc2float(acq->nrec, emf->nfreq);
+    emf->w_Zxy = alloc2float(acq->nrec, emf->nfreq);
+    emf->w_Zyx = alloc2float(acq->nrec, emf->nfreq);
+    emf->w_Zyy = alloc2float(acq->nrec, emf->nfreq);
     memset(&emf->cal_Zxx[0][0], 0, (size_t)emf->nfreq * acq->nrec * sizeof(float _Complex));
     memset(&emf->cal_Zxy[0][0], 0, (size_t)emf->nfreq * acq->nrec * sizeof(float _Complex));
     memset(&emf->cal_Zyx[0][0], 0, (size_t)emf->nfreq * acq->nrec * sizeof(float _Complex));
@@ -442,6 +489,10 @@ void inversion_init(acq_t *acq, emf_t *emf)
     memset(&emf->res_Zxy[0][0], 0, (size_t)emf->nfreq * acq->nrec * sizeof(float _Complex));
     memset(&emf->res_Zyx[0][0], 0, (size_t)emf->nfreq * acq->nrec * sizeof(float _Complex));
     memset(&emf->res_Zyy[0][0], 0, (size_t)emf->nfreq * acq->nrec * sizeof(float _Complex));
+    memset(&emf->w_Zxx[0][0], 0, (size_t)emf->nfreq * acq->nrec * sizeof(float));
+    memset(&emf->w_Zxy[0][0], 0, (size_t)emf->nfreq * acq->nrec * sizeof(float));
+    memset(&emf->w_Zyx[0][0], 0, (size_t)emf->nfreq * acq->nrec * sizeof(float));
+    memset(&emf->w_Zyy[0][0], 0, (size_t)emf->nfreq * acq->nrec * sizeof(float));
   }
 }
 
@@ -463,6 +514,10 @@ void inversion_free(emf_t *emf)
   if(emf->res_Zxy != NULL) free2complexf(emf->res_Zxy);
   if(emf->res_Zyx != NULL) free2complexf(emf->res_Zyx);
   if(emf->res_Zyy != NULL) free2complexf(emf->res_Zyy);
+  if(emf->w_Zxx != NULL) free2float(emf->w_Zxx);
+  if(emf->w_Zxy != NULL) free2float(emf->w_Zxy);
+  if(emf->w_Zyx != NULL) free2float(emf->w_Zyx);
+  if(emf->w_Zyy != NULL) free2float(emf->w_Zyy);
   if(emf->s_Ex != NULL) free3complexf(emf->s_Ex);
   if(emf->s_Ey != NULL) free3complexf(emf->s_Ey);
   if(emf->s_Hx != NULL) free3complexf(emf->s_Hx);

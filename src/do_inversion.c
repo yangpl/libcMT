@@ -18,6 +18,7 @@ void inversion_init(acq_t *acq, emf_t *emf);
 void inversion_free(emf_t *emf);
 void inversion_worker_loop(acq_t *acq, emf_t *emf);
 void inversion_mpi_stop(void);
+void inversion_init_data_weights(acq_t *acq, emf_t *emf);
 float inversion_grad(const float *x, float *g);
 
 /* Configure the optimizer, map the starting model into log-conductivity space, and launch inversion. */
@@ -117,6 +118,7 @@ int do_inversion(acq_t *acq, emf_t *emf)
   /* Only rank 0 needs the observed MT tensors because it is the only rank that forms
    * impedance residuals and adjoint sources. */
   read_mt_data(acq, emf, fdata);
+  inversion_init_data_weights(acq, emf);
   status = optim_run(&opt, inversion_grad, NULL);
 
   /* Tell workers there are no more optimization steps before tearing down shared state. */
