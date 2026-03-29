@@ -73,7 +73,6 @@ bool lbfgs_pair_is_usable(int n, const float *s, const float *y);
 void optim_config_defaults(optim_t *opt);
 bool optim_init(optim_t *opt, int n);
 void optim_free(optim_t *opt);
-int optim_run(optim_t *opt, optim_fg fg, optim_Hv Hv);
 const char *optim_method_name(int method);
 
 void lbfgs_save(int n, const float *x, const float *grad, float **sk, float **yk, optim_t *opt);

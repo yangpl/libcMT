@@ -197,3 +197,63 @@ void write_mt_data(acq_t *acq, emf_t *emf, char *fname)
   free1int(receiver_index);
   free1float(receiver_position);
 }
+
+static void write_float_dataset_3d(hid_t file_id, const char *name,
+                                   hsize_t n1, hsize_t n2, hsize_t n3, const float *data)
+{
+  hid_t space_id, dataset_id;
+  hsize_t dims[3];
+
+  dims[0] = n1;
+  dims[1] = n2;
+  dims[2] = n3;
+  space_id = H5Screate_simple(3, dims, NULL);
+  if(space_id < 0) err("error creating HDF5 dataspace");
+  dataset_id = H5Dcreate2(file_id, name, H5T_IEEE_F32LE, space_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+  if(dataset_id < 0) err("error creating HDF5 dataset");
+  check_hdf5_status(H5Dwrite(dataset_id, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, data),
+                    "error writing HDF5 float dataset");
+  check_hdf5_status(H5Dclose(dataset_id), "error closing HDF5 dataset");
+  check_hdf5_status(H5Sclose(space_id), "error closing HDF5 dataspace");
+}
+
+void write_inversion_model_hdf5(emf_t *emf, const float *x, int iter, const char *prefix)
+{
+  hid_t file_id;
+  char fname[PATH_MAX];
+  float *rho_h, *rho_v;
+  int i, j, k;
+  int id;
+  int ncell;
+
+  if(emf == NULL || x == NULL || prefix == NULL) err("invalid inversion snapshot request");
+
+  ncell = emf->nx * emf->ny * emf->nz;
+  rho_h = alloc1float(ncell);
+  rho_v = alloc1float(ncell);
+  if(rho_h == NULL || rho_v == NULL) err("error allocating inversion snapshot buffers");
+
+  for(k = 0; k < emf->nz; ++k) {
+    for(j = 0; j < emf->ny; ++j) {
+      for(i = 0; i < emf->nx; ++i) {
+        id = i + emf->nx * (j + emf->ny * k);
+        rho_h[id] = expf(-x[id]);
+        rho_v[id] = expf(-x[id + ncell]);
+      }
+    }
+  }
+
+  snprintf(fname, sizeof(fname), "%s_%04d.h5", prefix, iter);
+  file_id = H5Fcreate(fname, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
+  if(file_id < 0) err("error opening inversion snapshot HDF5 file for writing");
+
+  write_float_dataset_1d(file_id, "fx1", emf->nx + 1, emf->x1node);
+  write_float_dataset_1d(file_id, "fx2", emf->ny + 1, emf->x2node);
+  write_float_dataset_1d(file_id, "fx3", emf->nz + 1, emf->x3node);
+  write_float_dataset_3d(file_id, "rho_h", emf->nz, emf->ny, emf->nx, rho_h);
+  write_float_dataset_3d(file_id, "rho_v", emf->nz, emf->ny, emf->nx, rho_v);
+
+  check_hdf5_status(H5Fclose(file_id), "error closing inversion snapshot HDF5 file");
+  free1float(rho_h);
+  free1float(rho_v);
+}

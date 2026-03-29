@@ -20,6 +20,40 @@ void inversion_worker_loop(acq_t *acq, emf_t *emf);
 void inversion_mpi_stop(void);
 void inversion_init_data_weights(acq_t *acq, emf_t *emf);
 float inversion_grad(const float *x, float *g);
+void write_inversion_model_hdf5(emf_t *emf, const float *x, int iter, const char *prefix);
+
+static void optim_choose_direction(optim_t *opt)
+{
+  int i;
+  float beta_num, beta_den, beta;
+
+  switch (opt->method) {
+    case OPTIM_METHOD_NEWTON_CG:
+      cg_solve(opt->n, opt->x, opt->g, opt->d, NULL, opt);
+      break;
+    case OPTIM_METHOD_NLCG:
+      if (opt->iter == 0) {
+        flipsign(opt->n, opt->g, opt->d);
+      } else {
+        beta_num = dotprod(opt->n, opt->g, opt->g);
+        beta_den = dotprod(opt->n, opt->g_prev, opt->g_prev);
+        beta = (beta_den > 0.0f) ? beta_num / beta_den : 0.0f;
+        for (i = 0; i < opt->n; ++i) opt->d[i] = -opt->g[i] + beta * opt->d[i];
+      }
+      memcpy(opt->g_prev, opt->g, opt->n * sizeof(float));
+      break;
+    case OPTIM_METHOD_LBFGS:
+    default:
+      if (opt->iter == 0) {
+        flipsign(opt->n, opt->g, opt->d);
+      } else {
+        lbfgs_update(opt->n, opt->x, opt->g, opt->sk, opt->yk, opt);
+        lbfgs_descent(opt->n, opt->g, opt->d, opt->sk, opt->yk, opt);
+      }
+      lbfgs_save(opt->n, opt->x, opt->g, opt->sk, opt->yk, opt);
+      break;
+  }
+}
 
 /* Configure the optimizer, map the starting model into log-conductivity space, and launch inversion. */
 /* Rank 0 owns optimizer setup and objective evaluations. When MPI is enabled, other ranks
@@ -27,11 +61,13 @@ float inversion_grad(const float *x, float *g);
  * broadcasts and per-frequency work assignments from the master process. */
 int do_inversion(acq_t *acq, emf_t *emf)
 {
+  FILE *fp = NULL;
   int i, j, k;
   int id;
   int ncell;
   int rank, size;
   char *fdata;
+  char *fiter;
   optim_t opt;
   int status = EXIT_SUCCESS;
   float sigma_h, sigma_v;
@@ -57,6 +93,7 @@ int do_inversion(acq_t *acq, emf_t *emf)
   opt.alpha = opt.alpha0;
 
   if(!getparstring("fdata", &fdata)) err("Need fdata=");
+  if(!getparstring("fiter", &fiter)) fiter = "inv_model";
 
   ncell = emf->nx * emf->ny * emf->nz;
 
@@ -119,7 +156,84 @@ int do_inversion(acq_t *acq, emf_t *emf)
    * impedance residuals and adjoint sources. */
   read_mt_data(acq, emf, fdata);
   inversion_init_data_weights(acq, emf);
-  status = optim_run(&opt, inversion_grad, NULL);
+
+  opt.igrad = 0;
+  opt.iter = 0;
+  opt.ils = 0;
+  opt.kpair = 0;
+  opt.ls_fail = 0;
+  opt.status = OPTIM_STATUS_RUNNING;
+  opt.alpha = (opt.alpha0 > 0.0f) ? opt.alpha0 : 1.0f;
+
+  opt.f0 = inversion_grad(opt.x, opt.g);
+  opt.fk = opt.f0;
+  opt.igrad = 1;
+  opt.g0_norm = l2norm(opt.n, opt.g);
+  opt.gk_norm = opt.g0_norm;
+
+  if(opt.verb) {
+    printf("======= optimization starts ===========\n");
+    fp = fopen("iterate.txt", "w");
+    if(fp) {
+      setvbuf(fp, NULL, _IOLBF, 0);
+      fprintf(fp, "================================================================================\n");
+      fprintf(fp, "method: %s\n", optim_method_name(opt.method));
+      fprintf(fp, "%6s %14s %14s %14s %10s %6s %8s\n",
+              "iter", "fk", "fk/f0", "||gk||", "alpha", "nls", "ngrad");
+      fprintf(fp, "================================================================================\n");
+      fflush(fp);
+    }
+  }
+
+  for(opt.iter = 0; opt.iter < opt.niter; ++opt.iter) {
+    opt.gk_norm = l2norm(opt.n, opt.g);
+    if(opt.verb) {
+      printf("iteration=%d fk=%g ||g||=%g\n", opt.iter, opt.fk, opt.gk_norm);
+      if(fp) {
+        fprintf(fp, "%6d %14.6e %14.6e %14.6e %10.4e %6d %8d\n",
+                opt.iter, opt.fk, opt.fk / opt.f0, opt.gk_norm,
+                opt.alpha, opt.ils, opt.igrad);
+        fflush(fp);
+      }
+    }
+
+    write_inversion_model_hdf5(emf, opt.x, opt.iter, fiter);
+
+    if(opt.gk_norm <= opt.tol * MAX(1.0f, opt.g0_norm)) {
+      opt.status = OPTIM_STATUS_CONVERGED;
+      break;
+    }
+
+    optim_choose_direction(&opt);
+    line_search(opt.n, opt.x, opt.g, opt.d, inversion_grad, &opt);
+    if(opt.ls_fail) {
+      opt.status = OPTIM_STATUS_LINE_SEARCH_FAILED;
+      break;
+    }
+  }
+
+  if(opt.status == OPTIM_STATUS_RUNNING) {
+    opt.status = (opt.iter >= opt.niter) ? OPTIM_STATUS_MAX_ITER : OPTIM_STATUS_CONVERGED;
+  }
+
+  if(fp) {
+    switch(opt.status) {
+      case OPTIM_STATUS_CONVERGED:
+        fprintf(fp, "==> Convergence reached.\n");
+        break;
+      case OPTIM_STATUS_MAX_ITER:
+        fprintf(fp, "==> Maximum iteration number reached.\n");
+        break;
+      case OPTIM_STATUS_LINE_SEARCH_FAILED:
+        fprintf(fp, "==> Line search failed.\n");
+        break;
+      default:
+        break;
+    }
+    fflush(fp);
+    fclose(fp);
+  }
+  status = opt.status;
 
   /* Tell workers there are no more optimization steps before tearing down shared state. */
   if(size > 1) inversion_mpi_stop();

@@ -33,6 +33,7 @@ typedef struct {
   float _Complex **obs_Zxx, **obs_Zyx, **obs_Zxy, **obs_Zyy;
   float _Complex **cal_Zxx, **cal_Zyx, **cal_Zxy, **cal_Zyy;
   float _Complex **res_Zxx, **res_Zyx, **res_Zxy, **res_Zyy;
+  float **w_Zxx, **w_Zyx, **w_Zxy, **w_Zyy;
   float _Complex ***s_Ex, ***s_Ey, ***s_Hx, ***s_Hy;//adjoint sources
 
   float tol;
