@@ -22,39 +22,6 @@ void inversion_init_data_weights(acq_t *acq, emf_t *emf);
 float inversion_grad(const float *x, float *g);
 void write_inversion_model_hdf5(emf_t *emf, const float *x, int iter, const char *prefix);
 
-static void optim_choose_direction(optim_t *opt)
-{
-  int i;
-  float beta_num, beta_den, beta;
-
-  switch (opt->method) {
-    case OPTIM_METHOD_NEWTON_CG:
-      cg_solve(opt->n, opt->x, opt->g, opt->d, NULL, opt);
-      break;
-    case OPTIM_METHOD_NLCG:
-      if (opt->iter == 0) {
-        flipsign(opt->n, opt->g, opt->d);
-      } else {
-        beta_num = dotprod(opt->n, opt->g, opt->g);
-        beta_den = dotprod(opt->n, opt->g_prev, opt->g_prev);
-        beta = (beta_den > 0.0f) ? beta_num / beta_den : 0.0f;
-        for (i = 0; i < opt->n; ++i) opt->d[i] = -opt->g[i] + beta * opt->d[i];
-      }
-      memcpy(opt->g_prev, opt->g, opt->n * sizeof(float));
-      break;
-    case OPTIM_METHOD_LBFGS:
-    default:
-      if (opt->iter == 0) {
-        flipsign(opt->n, opt->g, opt->d);
-      } else {
-        lbfgs_update(opt->n, opt->x, opt->g, opt->sk, opt->yk, opt);
-        lbfgs_descent(opt->n, opt->g, opt->d, opt->sk, opt->yk, opt);
-      }
-      lbfgs_save(opt->n, opt->x, opt->g, opt->sk, opt->yk, opt);
-      break;
-  }
-}
-
 /* Configure the optimizer, map the starting model into log-conductivity space, and launch inversion. */
 /* Rank 0 owns optimizer setup and objective evaluations. When MPI is enabled, other ranks
  * bypass the optimizer entirely and stay inside inversion_worker_loop(), waiting for model
@@ -69,9 +36,10 @@ int do_inversion(acq_t *acq, emf_t *emf)
   char *fdata;
   char *fiter;
   optim_t opt;
-  int status = EXIT_SUCCESS;
+  int exit_status = EXIT_SUCCESS;
   float sigma_h, sigma_v;
   float sigma_min, sigma_max;
+  float beta_num, beta_den, beta;
 
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
   MPI_Comm_size(MPI_COMM_WORLD, &size);
@@ -110,10 +78,8 @@ int do_inversion(acq_t *acq, emf_t *emf)
   opt.n = 2 * ncell;
   if(!optim_init(&opt, opt.n)) {
     fprintf(stderr, "failed to initialize optimizer\n");
-    /* Tell workers there are no more optimization steps before tearing down shared state. */
-    if(size > 1) inversion_mpi_stop();
-    inversion_free(emf);
-    return EXIT_FAILURE;
+    exit_status = EXIT_FAILURE;
+    goto cleanup;
   }
 
   /* Bounds are applied in conductivity space, then converted to log-conductivity. */
@@ -157,19 +123,12 @@ int do_inversion(acq_t *acq, emf_t *emf)
   read_mt_data(acq, emf, fdata);
   inversion_init_data_weights(acq, emf);
 
-  opt.igrad = 0;
-  opt.iter = 0;
-  opt.ils = 0;
-  opt.kpair = 0;
-  opt.ls_fail = 0;
+  opt.igrad = opt.iter = opt.ils = opt.kpair = opt.ls_fail = 0;
   opt.status = OPTIM_STATUS_RUNNING;
   opt.alpha = (opt.alpha0 > 0.0f) ? opt.alpha0 : 1.0f;
-
-  opt.f0 = inversion_grad(opt.x, opt.g);
-  opt.fk = opt.f0;
+  opt.fk = opt.f0 = inversion_grad(opt.x, opt.g);
   opt.igrad = 1;
-  opt.g0_norm = l2norm(opt.n, opt.g);
-  opt.gk_norm = opt.g0_norm;
+  opt.gk_norm = opt.g0_norm = l2norm(opt.n, opt.g);
 
   if(opt.verb) {
     printf("======= optimization starts ===========\n");
@@ -204,7 +163,32 @@ int do_inversion(acq_t *acq, emf_t *emf)
       break;
     }
 
-    optim_choose_direction(&opt);
+    switch(opt.method) {
+      case OPTIM_METHOD_NEWTON_CG:
+        cg_solve(opt.n, opt.x, opt.g, opt.d, NULL, &opt);
+        break;
+      case OPTIM_METHOD_NLCG:
+        if(opt.iter == 0) {
+          flipsign(opt.n, opt.g, opt.d);
+        } else {
+          beta_num = dotprod(opt.n, opt.g, opt.g);
+          beta_den = dotprod(opt.n, opt.g_prev, opt.g_prev);
+          beta = (beta_den > 0.0f) ? beta_num / beta_den : 0.0f;
+          for(i = 0; i < opt.n; ++i) opt.d[i] = -opt.g[i] + beta * opt.d[i];
+        }
+        memcpy(opt.g_prev, opt.g, opt.n * sizeof(float));
+        break;
+      case OPTIM_METHOD_LBFGS:
+      default:
+        if(opt.iter == 0) {
+          flipsign(opt.n, opt.g, opt.d);
+        } else {
+          lbfgs_update(opt.n, opt.x, opt.g, opt.sk, opt.yk, &opt);
+          lbfgs_descent(opt.n, opt.g, opt.d, opt.sk, opt.yk, &opt);
+        }
+        lbfgs_save(opt.n, opt.x, opt.g, opt.sk, opt.yk, &opt);
+        break;
+    }
     line_search(opt.n, opt.x, opt.g, opt.d, inversion_grad, &opt);
     if(opt.ls_fail) {
       opt.status = OPTIM_STATUS_LINE_SEARCH_FAILED;
@@ -233,15 +217,12 @@ int do_inversion(acq_t *acq, emf_t *emf)
     fflush(fp);
     fclose(fp);
   }
-  status = opt.status;
+  exit_status = (opt.status == OPTIM_STATUS_LINE_SEARCH_FAILED) ? EXIT_FAILURE : EXIT_SUCCESS;
 
+cleanup:
   /* Tell workers there are no more optimization steps before tearing down shared state. */
   if(size > 1) inversion_mpi_stop();
   inversion_free(emf);
   optim_free(&opt);
-
-  if(status == OPTIM_STATUS_LINE_SEARCH_FAILED) {
-    return EXIT_FAILURE;
-  }
-  return EXIT_SUCCESS;
+  return exit_status;
 }

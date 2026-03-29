@@ -36,14 +36,6 @@ void inject_adjoint_sources(acq_t *acq, int ifreq, int ipolar);
 
 void read_mt_data(acq_t *acq, emf_t *emf, char *fname);
 
-static float safe_inverse_weight(float scale)
-{
-  const float min_scale = 1e-30f;
-
-  if(scale < min_scale) scale = min_scale;
-  return 1.0f / scale;
-}
-
 static void model_from_vector(const float *x)
 {
   int i, j, k;
@@ -108,10 +100,10 @@ void inversion_init_data_weights(acq_t *acq, emf_t *emf)
       float abs_zyy = cabsf(emf->obs_Zyy[ifreq][irec]);
       float cross = 0.03f * sqrtf(abs_zxy * abs_zyx);
 
-      emf->w_Zxy[ifreq][irec] = safe_inverse_weight(0.03f * abs_zxy);
-      emf->w_Zyx[ifreq][irec] = safe_inverse_weight(0.03f * abs_zyx);
-      emf->w_Zxx[ifreq][irec] = safe_inverse_weight(MAX(0.2f * abs_zxx, cross));
-      emf->w_Zyy[ifreq][irec] = safe_inverse_weight(MAX(0.2f * abs_zyy, cross));
+      emf->w_Zxy[ifreq][irec] = 1.0f / MAX(0.03f * abs_zxy, 1e-30f);
+      emf->w_Zyx[ifreq][irec] = 1.0f / MAX(0.03f * abs_zyx, 1e-30f);
+      emf->w_Zxx[ifreq][irec] = 1.0f / MAX(MAX(0.2f * abs_zxx, cross), 1e-30f);
+      emf->w_Zyy[ifreq][irec] = 1.0f / MAX(MAX(0.2f * abs_zyy, cross), 1e-30f);
     }
   }
 }
@@ -141,6 +133,66 @@ static void zero_master_buffers(void)
   memset(&inv_emf->s_Hy[0][0][0], 0, 2 * inv_acq->nrec * inv_emf->nfreq * sizeof(float _Complex));
 
   (void)ncell;
+}
+
+static void pack_forward_data(int ifreq, float _Complex *buffer)
+{
+  int irec;
+  for(irec = 0; irec < inv_acq->nrec; ++irec) {
+    buffer[0 * inv_acq->nrec + irec] = inv_emf->d_Ex[0][ifreq][irec];
+    buffer[1 * inv_acq->nrec + irec] = inv_emf->d_Ex[1][ifreq][irec];
+    buffer[2 * inv_acq->nrec + irec] = inv_emf->d_Ey[0][ifreq][irec];
+    buffer[3 * inv_acq->nrec + irec] = inv_emf->d_Ey[1][ifreq][irec];
+    buffer[4 * inv_acq->nrec + irec] = inv_emf->d_Hx[0][ifreq][irec];
+    buffer[5 * inv_acq->nrec + irec] = inv_emf->d_Hx[1][ifreq][irec];
+    buffer[6 * inv_acq->nrec + irec] = inv_emf->d_Hy[0][ifreq][irec];
+    buffer[7 * inv_acq->nrec + irec] = inv_emf->d_Hy[1][ifreq][irec];
+  }
+}
+
+static void unpack_forward_data(int ifreq, const float _Complex *buffer)
+{
+  int irec;
+  for(irec = 0; irec < inv_acq->nrec; ++irec) {
+    inv_emf->d_Ex[0][ifreq][irec] = buffer[0 * inv_acq->nrec + irec];
+    inv_emf->d_Ex[1][ifreq][irec] = buffer[1 * inv_acq->nrec + irec];
+    inv_emf->d_Ey[0][ifreq][irec] = buffer[2 * inv_acq->nrec + irec];
+    inv_emf->d_Ey[1][ifreq][irec] = buffer[3 * inv_acq->nrec + irec];
+    inv_emf->d_Hx[0][ifreq][irec] = buffer[4 * inv_acq->nrec + irec];
+    inv_emf->d_Hx[1][ifreq][irec] = buffer[5 * inv_acq->nrec + irec];
+    inv_emf->d_Hy[0][ifreq][irec] = buffer[6 * inv_acq->nrec + irec];
+    inv_emf->d_Hy[1][ifreq][irec] = buffer[7 * inv_acq->nrec + irec];
+  }
+}
+
+static void pack_adjoint_sources(int ifreq, float _Complex *buffer)
+{
+  int irec;
+  for(irec = 0; irec < inv_acq->nrec; ++irec) {
+    buffer[0 * inv_acq->nrec + irec] = inv_emf->s_Ex[0][ifreq][irec];
+    buffer[1 * inv_acq->nrec + irec] = inv_emf->s_Ex[1][ifreq][irec];
+    buffer[2 * inv_acq->nrec + irec] = inv_emf->s_Ey[0][ifreq][irec];
+    buffer[3 * inv_acq->nrec + irec] = inv_emf->s_Ey[1][ifreq][irec];
+    buffer[4 * inv_acq->nrec + irec] = inv_emf->s_Hx[0][ifreq][irec];
+    buffer[5 * inv_acq->nrec + irec] = inv_emf->s_Hx[1][ifreq][irec];
+    buffer[6 * inv_acq->nrec + irec] = inv_emf->s_Hy[0][ifreq][irec];
+    buffer[7 * inv_acq->nrec + irec] = inv_emf->s_Hy[1][ifreq][irec];
+  }
+}
+
+static void unpack_adjoint_sources(int ifreq, const float _Complex *buffer)
+{
+  int irec;
+  for(irec = 0; irec < inv_acq->nrec; ++irec) {
+    inv_emf->s_Ex[0][ifreq][irec] = buffer[0 * inv_acq->nrec + irec];
+    inv_emf->s_Ex[1][ifreq][irec] = buffer[1 * inv_acq->nrec + irec];
+    inv_emf->s_Ey[0][ifreq][irec] = buffer[2 * inv_acq->nrec + irec];
+    inv_emf->s_Ey[1][ifreq][irec] = buffer[3 * inv_acq->nrec + irec];
+    inv_emf->s_Hx[0][ifreq][irec] = buffer[4 * inv_acq->nrec + irec];
+    inv_emf->s_Hx[1][ifreq][irec] = buffer[5 * inv_acq->nrec + irec];
+    inv_emf->s_Hy[0][ifreq][irec] = buffer[6 * inv_acq->nrec + irec];
+    inv_emf->s_Hy[1][ifreq][irec] = buffer[7 * inv_acq->nrec + irec];
+  }
 }
 
 /* Worker-side solve for one frequency: run both source polarizations, cache the full
@@ -231,66 +283,6 @@ static void solve_adjoint_frequency(int ifreq, float *g)
         }
       }
     }
-  }
-}
-
-static void pack_forward_data(int ifreq, float _Complex *buffer)
-{
-  int irec;
-  for(irec = 0; irec < inv_acq->nrec; ++irec) {
-    buffer[0 * inv_acq->nrec + irec] = inv_emf->d_Ex[0][ifreq][irec];
-    buffer[1 * inv_acq->nrec + irec] = inv_emf->d_Ex[1][ifreq][irec];
-    buffer[2 * inv_acq->nrec + irec] = inv_emf->d_Ey[0][ifreq][irec];
-    buffer[3 * inv_acq->nrec + irec] = inv_emf->d_Ey[1][ifreq][irec];
-    buffer[4 * inv_acq->nrec + irec] = inv_emf->d_Hx[0][ifreq][irec];
-    buffer[5 * inv_acq->nrec + irec] = inv_emf->d_Hx[1][ifreq][irec];
-    buffer[6 * inv_acq->nrec + irec] = inv_emf->d_Hy[0][ifreq][irec];
-    buffer[7 * inv_acq->nrec + irec] = inv_emf->d_Hy[1][ifreq][irec];
-  }
-}
-
-static void unpack_forward_data(int ifreq, const float _Complex *buffer)
-{
-  int irec;
-  for(irec = 0; irec < inv_acq->nrec; ++irec) {
-    inv_emf->d_Ex[0][ifreq][irec] = buffer[0 * inv_acq->nrec + irec];
-    inv_emf->d_Ex[1][ifreq][irec] = buffer[1 * inv_acq->nrec + irec];
-    inv_emf->d_Ey[0][ifreq][irec] = buffer[2 * inv_acq->nrec + irec];
-    inv_emf->d_Ey[1][ifreq][irec] = buffer[3 * inv_acq->nrec + irec];
-    inv_emf->d_Hx[0][ifreq][irec] = buffer[4 * inv_acq->nrec + irec];
-    inv_emf->d_Hx[1][ifreq][irec] = buffer[5 * inv_acq->nrec + irec];
-    inv_emf->d_Hy[0][ifreq][irec] = buffer[6 * inv_acq->nrec + irec];
-    inv_emf->d_Hy[1][ifreq][irec] = buffer[7 * inv_acq->nrec + irec];
-  }
-}
-
-static void pack_adjoint_sources(int ifreq, float _Complex *buffer)
-{
-  int irec;
-  for(irec = 0; irec < inv_acq->nrec; ++irec) {
-    buffer[0 * inv_acq->nrec + irec] = inv_emf->s_Ex[0][ifreq][irec];
-    buffer[1 * inv_acq->nrec + irec] = inv_emf->s_Ex[1][ifreq][irec];
-    buffer[2 * inv_acq->nrec + irec] = inv_emf->s_Ey[0][ifreq][irec];
-    buffer[3 * inv_acq->nrec + irec] = inv_emf->s_Ey[1][ifreq][irec];
-    buffer[4 * inv_acq->nrec + irec] = inv_emf->s_Hx[0][ifreq][irec];
-    buffer[5 * inv_acq->nrec + irec] = inv_emf->s_Hx[1][ifreq][irec];
-    buffer[6 * inv_acq->nrec + irec] = inv_emf->s_Hy[0][ifreq][irec];
-    buffer[7 * inv_acq->nrec + irec] = inv_emf->s_Hy[1][ifreq][irec];
-  }
-}
-
-static void unpack_adjoint_sources(int ifreq, const float _Complex *buffer)
-{
-  int irec;
-  for(irec = 0; irec < inv_acq->nrec; ++irec) {
-    inv_emf->s_Ex[0][ifreq][irec] = buffer[0 * inv_acq->nrec + irec];
-    inv_emf->s_Ex[1][ifreq][irec] = buffer[1 * inv_acq->nrec + irec];
-    inv_emf->s_Ey[0][ifreq][irec] = buffer[2 * inv_acq->nrec + irec];
-    inv_emf->s_Ey[1][ifreq][irec] = buffer[3 * inv_acq->nrec + irec];
-    inv_emf->s_Hx[0][ifreq][irec] = buffer[4 * inv_acq->nrec + irec];
-    inv_emf->s_Hx[1][ifreq][irec] = buffer[5 * inv_acq->nrec + irec];
-    inv_emf->s_Hy[0][ifreq][irec] = buffer[6 * inv_acq->nrec + irec];
-    inv_emf->s_Hy[1][ifreq][irec] = buffer[7 * inv_acq->nrec + irec];
   }
 }
 
