@@ -17,10 +17,9 @@ void read_mt_data(acq_t *acq, emf_t *emf, char *fname);
 void inversion_init(acq_t *acq, emf_t *emf);
 void inversion_free(emf_t *emf);
 void inversion_worker_loop(acq_t *acq, emf_t *emf);
-void inversion_mpi_stop(void);
 void inversion_init_data_weights(acq_t *acq, emf_t *emf);
 float inversion_grad(const float *x, float *g);
-void write_inversion_model_hdf5(emf_t *emf, const float *x, int iter, const char *prefix);
+void write_inversion_model_hdf5(emf_t *emf, const float *x, int iter);
 
 /* Configure the optimizer, map the starting model into log-conductivity space, and launch inversion. */
 /* Rank 0 owns optimizer setup and objective evaluations. When MPI is enabled, other ranks
@@ -34,7 +33,6 @@ int do_inversion(acq_t *acq, emf_t *emf)
   int ncell;
   int rank, size;
   char *fdata;
-  char *fiter;
   optim_t opt;
   int exit_status = EXIT_SUCCESS;
   float sigma_h, sigma_v;
@@ -61,7 +59,6 @@ int do_inversion(acq_t *acq, emf_t *emf)
   opt.alpha = opt.alpha0;
 
   if(!getparstring("fdata", &fdata)) err("Need fdata=");
-  if(!getparstring("fiter", &fiter)) fiter = "inv_model";
 
   ncell = emf->nx * emf->ny * emf->nz;
 
@@ -156,7 +153,7 @@ int do_inversion(acq_t *acq, emf_t *emf)
       }
     }
 
-    write_inversion_model_hdf5(emf, opt.x, opt.iter, fiter);
+    write_inversion_model_hdf5(emf, opt.x, opt.iter);
 
     if(opt.gk_norm <= opt.tol * MAX(1.0f, opt.g0_norm)) {
       opt.status = OPTIM_STATUS_CONVERGED;
@@ -221,7 +218,10 @@ int do_inversion(acq_t *acq, emf_t *emf)
 
 cleanup:
   /* Tell workers there are no more optimization steps before tearing down shared state. */
-  if(size > 1) inversion_mpi_stop();
+  if(size > 1) {
+    int command = 2;
+    MPI_Bcast(&command, 1, MPI_INT, 0, MPI_COMM_WORLD);
+  }
   inversion_free(emf);
   optim_free(&opt);
   return exit_status;

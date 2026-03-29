@@ -217,7 +217,7 @@ static void write_float_dataset_3d(hid_t file_id, const char *name,
   check_hdf5_status(H5Sclose(space_id), "error closing HDF5 dataspace");
 }
 
-void write_inversion_model_hdf5(emf_t *emf, const float *x, int iter, const char *prefix)
+void write_inversion_model_hdf5(emf_t *emf, const float *x, int iter)
 {
   hid_t file_id;
   char fname[PATH_MAX];
@@ -226,7 +226,7 @@ void write_inversion_model_hdf5(emf_t *emf, const float *x, int iter, const char
   int id;
   int ncell;
 
-  if(emf == NULL || x == NULL || prefix == NULL) err("invalid inversion snapshot request");
+  if(emf == NULL || x == NULL) err("invalid inversion snapshot request");
 
   ncell = emf->nx * emf->ny * emf->nz;
   rho_h = alloc1float(ncell);
@@ -243,7 +243,7 @@ void write_inversion_model_hdf5(emf_t *emf, const float *x, int iter, const char
     }
   }
 
-  snprintf(fname, sizeof(fname), "%s_%04d.h5", prefix, iter);
+  snprintf(fname, sizeof(fname), "model_iter%04d.h5", iter);
   file_id = H5Fcreate(fname, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
   if(file_id < 0) err("error opening inversion snapshot HDF5 file for writing");
 

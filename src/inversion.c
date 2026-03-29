@@ -520,12 +520,6 @@ void inversion_free(emf_t *emf)
   clear_inversion_pointers(emf);
 }
 
-void inversion_mpi_stop(void)
-{
-  int command = INV_CMD_STOP;
-  MPI_Bcast(&command, 1, MPI_INT, 0, MPI_COMM_WORLD);
-}
-
 /* Long-lived worker loop for inversion. Each optimization step starts with a broadcast
  * of the current model vector, then workers repeatedly: (1) solve one assigned frequency
  * forward, (2) return sampled receiver fields, (3) receive adjoint sources for that same
