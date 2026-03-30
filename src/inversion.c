@@ -530,8 +530,8 @@ void inversion_worker_loop(acq_t *acq, emf_t *emf)
   int ncell = emf->nx * emf->ny * emf->nz;
   float *x = alloc1float(2 * ncell);
   float *g_local = alloc1float(2 * ncell);
-  float _Complex *forward_data = alloc1complexf(8 * acq->nrec);
-  float _Complex *source_data = alloc1complexf(8 * acq->nrec);
+  float _Complex *forward_data = alloc1complexf(8 * acq->nrec);//Ex1,Ex2,Ey1,Ey2,Hx1,Hx2,Hy1,Hy2
+  float _Complex *source_data = alloc1complexf(8 * acq->nrec);//sEx1,sEx2,sEy1,sEy2,sHx1,sHx2,sHy1,sHy2
 
   inv_acq = acq;
   inv_emf = emf;

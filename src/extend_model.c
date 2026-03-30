@@ -12,6 +12,7 @@
 #include "emf.h"
  
 int find_index(int n, double *x, double val);
+int find_index_float(int n, float *x, double val);
 double create_nugrid(int n, double len, double dx, double *x, int istretch);
 
 static int get_padding_count(double target_dist, double dx0, int min_cells, double qmax)
@@ -96,25 +97,6 @@ static void build_axis_with_padding(
   *xout = x;
 }
 
-static int find_source_index_float(int n, float *x, double val)
-{
-  int low, high, mid;
-
-  if(val <= x[0]) return 0;
-  if(val >= x[n]) return n-1;
-
-  low = 0;
-  high = n-1;
-  while(low <= high){
-    mid = (low + high) / 2;
-    if(x[mid] <= val && val < x[mid+1]) return mid;
-    if(val < x[mid]) high = mid - 1;
-    else low = mid + 1;
-  }
-
-  return n-1;
-}
-
 static void set_air_cell(emf_t *emf, int i1, int i2, int i3, double rho_air)
 {
   double sigma_air = 1.0/rho_air;
@@ -172,9 +154,9 @@ void extend_model_init(emf_t *emf, int ifreq)
           continue;
         }
 
-        ix = find_source_index_float(emf->nx, emf->x1node, x1c);
-        iy = find_source_index_float(emf->ny, emf->x2node, x2c);
-        iz = find_source_index_float(emf->nz, emf->x3node, x3c);
+        ix = find_index_float(emf->nx, emf->x1node, x1c);
+        iy = find_index_float(emf->ny, emf->x2node, x2c);
+        iz = find_index_float(emf->nz, emf->x3node, x3c);
         set_source_cell(emf, i1, i2, i3, ix, iy, iz);
       }
     }

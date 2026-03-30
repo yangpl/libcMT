@@ -1823,7 +1823,6 @@ void gmg_init(emf_t *emf, int ifreq)
   if(emf->verb) printf("----------- gmg_init ---------------\n");
   emf_ = emf;
   I_omega_mu0 = I*emf->omegas[ifreq]*mu0;//Fourier convention: \partial_t->-I*omega
-  //I_omega_mu0 *= -1;// multiply -1 changes it to \partial_t->I*omega
   verb = emf->verb; //verbosity display, 1=verbose, 0=not 
   if(!getparint("cycleopt", &cycleopt)) cycleopt = 2;/* 1=V cycle; 2=F cycle; 3=W cycle */
   if(!getparint("ncycle", &ncycle)) ncycle = 100;/* number of multigrid cycles */  

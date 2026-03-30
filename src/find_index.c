@@ -29,3 +29,23 @@ int find_index(int n, double *x, double val)
 
   return low;
 }
+
+
+int find_index_float(int n, float *x, double val)
+{
+  int low, high, mid;
+
+  if(val <= x[0]) return 0;
+  if(val >= x[n]) return n-1;
+
+  low = 0;
+  high = n-1;
+  while(low <= high){
+    mid = (low + high) / 2;
+    if(x[mid] <= val && val < x[mid+1]) return mid;
+    if(val < x[mid]) high = mid - 1;
+    else low = mid + 1;
+  }
+
+  return n-1;
+}
