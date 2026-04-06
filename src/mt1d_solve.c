@@ -339,9 +339,14 @@ void mt1d_efield_at_boundary(gmg_t *gmg, double freq, int ipolar)
         mt1d_solve_ani(freq, sxx1d, syy1d, sxy1d, 1.0 + 0.0 * I, 0.0 + 0.0 * I, Ex1d, Ey1d);
         /* Always set the top and bottom edges; side walls receive the full profile. */
         Ex[0][j][i] = Ex1d[0];
+        Ey[0][j][i] = Ey1d[0];
         Ex[n3][j][i] = Ex1d[n3];
+        Ey[n3][j][i] = Ey1d[n3];
         if (j == 0 || j == n2) {
-          for (k = 0; k <= n3; k++) Ex[k][j][i] = Ex1d[k];
+          for (k = 0; k <= n3; k++) {
+            Ex[k][j][i] = Ex1d[k];
+            Ey[k][j][i] = Ey1d[k];
+          }
         }
       }
     }
@@ -374,10 +379,15 @@ void mt1d_efield_at_boundary(gmg_t *gmg, double freq, int ipolar)
         }
         mt1d_solve_ani(freq, sxx1d, syy1d, sxy1d, 0.0 + 0.0 * I, 1.0 + 0.0 * I, Ex1d, Ey1d);
         /* Always set the top and bottom edges; side walls receive the full profile. */
+        Ex[0][j][i] = Ex1d[0];
         Ey[0][j][i] = Ey1d[0];
+        Ex[n3][j][i] = Ex1d[n3];
         Ey[n3][j][i] = Ey1d[n3];
         if (i == 0 || i == n1) {
-          for (k = 0; k <= n3; k++) Ey[k][j][i] = Ey1d[k];
+          for (k = 0; k <= n3; k++) {
+            Ex[k][j][i] = Ex1d[k];
+            Ey[k][j][i] = Ey1d[k];
+          }
         }
       }
     }
