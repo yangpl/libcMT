@@ -21,6 +21,133 @@ void inversion_init_data_weights(acq_t *acq, emf_t *emf);
 float inversion_grad(const float *x, float *g);
 void write_inversion_model_hdf5(emf_t *emf, const float *x, int iter);
 
+static int count_free_parameters(const optim_t *opt)
+{
+  int i, nfree = 0;
+
+  for(i = 0; i < opt->n; ++i) {
+    if(opt->xmax[i] > opt->xmin[i]) ++nfree;
+  }
+
+  return nfree;
+}
+
+static void build_gradient_check_direction(const optim_t *opt, float *p, int idir)
+{
+  int i;
+  int target;
+  int free_seen = 0;
+
+  memset(p, 0, opt->n * sizeof(float));
+
+  target = idir;
+  for(i = 0; i < opt->n; ++i) {
+    if(opt->xmax[i] <= opt->xmin[i]) continue;
+    if(free_seen == target) {
+      p[i] = 1.0f;
+      return;
+    }
+    ++free_seen;
+  }
+}
+
+static int run_gradient_check(const optim_t *opt)
+{
+  FILE *fp = NULL;
+  int i, idir;
+  int ncheck;
+  int nfree;
+  int seed;
+  float eps;
+  float *g = NULL;
+  float *xp = NULL;
+  float *xm = NULL;
+  float *p = NULL;
+  float *g_dummy = NULL;
+  double f0, fp_cost, fm_cost;
+  double fd_dir, adj_dir, abs_err, rel_err, denom;
+  double max_abs_err = 0.0, max_rel_err = 0.0;
+
+  if(!getparfloat("gradcheck_eps", &eps)) eps = 1e-4f;
+  if(!getparint("gradcheck_n", &ncheck)) ncheck = 4;
+  if(!getparint("gradcheck_seed", &seed)) seed = 0;
+
+  if(eps <= 0.0f) err("gradcheck_eps must be positive");
+
+  nfree = count_free_parameters(opt);
+  if(nfree <= 0) {
+    printf("Gradient check skipped: no free inversion parameters.\n");
+    return EXIT_SUCCESS;
+  }
+  if(ncheck <= 0) ncheck = 1;
+  ncheck = MIN(ncheck, nfree);
+
+  g = alloc1float(opt->n);
+  xp = alloc1float(opt->n);
+  xm = alloc1float(opt->n);
+  p = alloc1float(opt->n);
+  g_dummy = alloc1float(opt->n);
+  if(g == NULL || xp == NULL || xm == NULL || p == NULL || g_dummy == NULL)
+    err("failed to allocate gradient-check buffers");
+
+  srand((unsigned int)seed);
+  f0 = inversion_grad(opt->x, g);
+
+  printf("======= gradient check =======\n");
+  printf("f(x0)=%e ||g(x0)||=%e nfree=%d eps=%g ncheck=%d\n",
+         f0, l2norm(opt->n, g), nfree, eps, ncheck);
+
+  fp = fopen("gradcheck.txt", "w");
+  if(fp) {
+    setvbuf(fp, NULL, _IOLBF, 0);
+    fprintf(fp, "# idir fd_dot adj_dot abs_err rel_err\n");
+  }
+
+  for(idir = 0; idir < ncheck; ++idir) {
+    int free_index = (seed == 0) ? idir : rand() % nfree;
+
+    build_gradient_check_direction(opt, p, free_index);
+    memcpy(xp, opt->x, opt->n * sizeof(float));
+    memcpy(xm, opt->x, opt->n * sizeof(float));
+    for(i = 0; i < opt->n; ++i) {
+      xp[i] += eps * p[i];
+      xm[i] -= eps * p[i];
+    }
+    if(opt->bound) {
+      boundx(xp, opt->n, opt->xmin, opt->xmax);
+      boundx(xm, opt->n, opt->xmin, opt->xmax);
+    }
+
+    fp_cost = inversion_grad(xp, g_dummy);
+    fm_cost = inversion_grad(xm, g_dummy);
+    fd_dir = (fp_cost - fm_cost) / (2.0 * eps);
+    adj_dir = dotprod(opt->n, g, p);
+    abs_err = fabs(fd_dir - adj_dir);
+    denom = MAX(MAX(fabs(fd_dir), fabs(adj_dir)), 1e-30);
+    rel_err = abs_err / denom;
+    max_abs_err = MAX(max_abs_err, abs_err);
+    max_rel_err = MAX(max_rel_err, rel_err);
+
+    printf("gradcheck idir=%d free_index=%d fd=% .6e adj=% .6e abs=% .3e rel=% .3e\n",
+           idir, free_index, fd_dir, adj_dir, abs_err, rel_err);
+    if(fp) {
+      fprintf(fp, "%d %d %.8e %.8e %.8e %.8e\n",
+              idir, free_index, fd_dir, adj_dir, abs_err, rel_err);
+    }
+  }
+
+  printf("gradcheck summary: max_abs=%e max_rel=%e\n", max_abs_err, max_rel_err);
+
+  if(fp) fclose(fp);
+  free1float(g);
+  free1float(xp);
+  free1float(xm);
+  free1float(p);
+  free1float(g_dummy);
+
+  return EXIT_SUCCESS;
+}
+
 /* Configure the optimizer, map the starting model into log-conductivity space, and launch inversion. */
 /* Rank 0 owns optimizer setup and objective evaluations. When MPI is enabled, other ranks
  * bypass the optimizer entirely and stay inside inversion_worker_loop(), waiting for model
@@ -31,6 +158,7 @@ int do_inversion(acq_t *acq, emf_t *emf)
   int i, j, k;
   int id;
   int ncell;
+  int do_gradcheck = 0;
   int rank, size;
   char *fdata;
   optim_t opt;
@@ -55,8 +183,12 @@ int do_inversion(acq_t *acq, emf_t *emf)
   }
   if(!getparfloat("c1", &opt.c1)) opt.c1 = 1e-4f;
   if(!getparfloat("c2", &opt.c2)) opt.c2 = 0.9f;
-  if(!getparfloat("alpha", &opt.alpha0)) opt.alpha0 = 1.0f;
+  /* The inversion objective is quite sensitive to the first trial step. Keep
+   * the default conservative so the stock launcher does not immediately drive
+   * the line search into failure from a rough starting model. */
+  if(!getparfloat("alpha", &opt.alpha0)) opt.alpha0 = 0.1f;
   opt.alpha = opt.alpha0;
+  getparint("gradcheck", &do_gradcheck);
 
   if(!getparstring("fdata", &fdata)) err("Need fdata=");
 
@@ -119,6 +251,11 @@ int do_inversion(acq_t *acq, emf_t *emf)
    * impedance residuals and adjoint sources. */
   read_mt_data(acq, emf, fdata);
   inversion_init_data_weights(acq, emf);
+
+  if(do_gradcheck) {
+    exit_status = run_gradient_check(&opt);
+    goto cleanup;
+  }
 
   opt.igrad = opt.iter = opt.ils = opt.kpair = opt.ls_fail = 0;
   opt.status = OPTIM_STATUS_RUNNING;

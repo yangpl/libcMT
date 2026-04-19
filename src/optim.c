@@ -272,13 +272,14 @@ static float optim_initial_step(int n, const float *x, const float *d, const opt
 void line_search(int n, float *x, float *g, float *d, optim_fg fg, optim_t *opt)
 {
   int i;
+  int fail_reason = 0;
   float alpha_lo = 0.0f;
   float alpha_hi = FLT_MAX;
   float step = 0.0f;
   float fcost = opt->fk;
   float gxd0 = dotprod(n, g, d);
   float armijo_rhs;
-  float gxd;
+  float gxd = gxd0;
 
   memcpy(opt->trial_x, x, n * sizeof(float));
   memcpy(opt->trial_g, g, n * sizeof(float));
@@ -307,9 +308,11 @@ void line_search(int n, float *x, float *g, float *d, optim_fg fg, optim_t *opt)
     armijo_rhs = opt->fk + opt->c1 * step * gxd0;
 
     if (fcost > armijo_rhs) {
+      fail_reason = 1;
       alpha_hi = step;
       step = 0.5f * (alpha_lo + alpha_hi);
     } else if (gxd < opt->c2 * gxd0) {
+      fail_reason = 2;
       alpha_lo = step;
       step = (alpha_hi < FLT_MAX) ? 0.5f * (alpha_lo + alpha_hi) : 10.0f * alpha_lo;
     } else {
@@ -318,6 +321,7 @@ void line_search(int n, float *x, float *g, float *d, optim_fg fg, optim_t *opt)
     }
 
     if (step <= 0.0f || !isfinite(step)) {
+      fail_reason = 3;
       break;
     }
   }
@@ -330,6 +334,19 @@ void line_search(int n, float *x, float *g, float *d, optim_fg fg, optim_t *opt)
     return;
   }
 
+  if (opt->verb) {
+    printf("Line search failed after %d trial(s): step=%g f=%g f_ref=%g gTd0=%g gTd=%g reason=%s\n",
+           opt->ils + 1,
+           step,
+           fcost,
+           opt->fk,
+           gxd0,
+           gxd,
+           (fail_reason == 1) ? "Armijo condition not satisfied" :
+           (fail_reason == 2) ? "curvature condition not satisfied" :
+           (fail_reason == 3) ? "invalid trial step" :
+                                "no acceptable Wolfe step found");
+  }
   opt->alpha = opt->alpha0;
 }
 

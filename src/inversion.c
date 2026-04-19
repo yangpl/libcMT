@@ -284,6 +284,7 @@ static void solve_adjoint_frequency(int ifreq, float *g)
       }
     }
   }
+  
 }
 
 /* Rank 0 owns the objective evaluation bookkeeping: form impedances from the returned
@@ -391,10 +392,14 @@ static void apply_log_parameter_chain_rule(const float *x, float *g)
   int i, j, k;
   int id;
   int ncell = inv_emf->nx * inv_emf->ny * inv_emf->nz;
-
+  float dx, dy, dz, vol;
+  
   for(k = 0; k < inv_emf->nz; ++k) {
+    dz = inv_emf->x3node[k+1]-inv_emf->x3node[k];
     for(j = 0; j < inv_emf->ny; ++j) {
+      dy = inv_emf->x2node[j+1]-inv_emf->x2node[j];
       for(i = 0; i < inv_emf->nx; ++i) {
+        dx = inv_emf->x1node[i+1]-inv_emf->x1node[i];
         float sigma_h, sigma_v;
         float rho_h, rho_v;
 
@@ -403,6 +408,14 @@ static void apply_log_parameter_chain_rule(const float *x, float *g)
         sigma_v = expf(x[id + ncell]);
         rho_h = expf(-x[id]);
         rho_v = expf(-x[id + ncell]);
+        vol = dx * dy * dz;
+
+        /* The discrete GMG operator stores conductivity multiplied by the model-cell
+         * volume. Convert the raw adjoint product from dJ/d(sigma*vol) to dJ/dsigma
+         * first, then apply the log-conductivity chain rule d sigma / d log(sigma)=sigma.
+         */
+        g[id] *= vol;
+        g[id + ncell] *= vol;
 
         g[id] *= sigma_h;
         g[id + ncell] *= sigma_v;
