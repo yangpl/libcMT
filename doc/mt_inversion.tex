@@ -3,7 +3,7 @@
 \usepackage{xcolor}
 \usepackage{amsmath}
 \usepackage{graphicx}
-\usepackage{subcaption}
+\usepackage{hyperref}
 \usepackage{cleveref}
 \usepackage{natbib}
 \usepackage[margin=1in]{geometry}
@@ -47,10 +47,10 @@ The remainder of the paper is organised as follows. We first summarise the MT fo
 
 \section{MT forward problem}
 
-Diffusive electromagnetic fields are governed by Maxwell's equations, which in the frequency domain read
+Diffusive electromagnetic fields are governed by Maxwell's equations, which with the Fourier convention $\partial_t\mapsto -i\omega$ read
 \begin{subequations}
   \begin{align}
-    \nabla\times E + i\omega\mu H &= M_s,\label{eq:H}\\
+    \nabla\times E - i\omega\mu H &= M_s,\label{eq:H}\\
     \nabla\times H -\sigma E &= J_s, \label{eq:E}
   \end{align}
 \end{subequations}
@@ -58,7 +58,7 @@ where $\mu=\mu_r\mu_0$ is the magnetic permeability (usually taken as the free�
 \begin{equation}
 \underbrace{  \begin{bmatrix}
     -\sigma & \nabla\times\\
-    \nabla\times & i\omega\mu
+    \nabla\times & -i\omega\mu
   \end{bmatrix}}_{A(m)}\underbrace{\begin{bmatrix}
     E\\
     H
@@ -127,15 +127,15 @@ The four components of the impedance tensor are therefore given by
 \section{Matrix‑free geometrical multigrid solver}
 
 The core of \texttt{libcMT} is a matrix‑free geometrical multigrid (GMG) solver for the second‑order curl–curl formulation of Maxwell's equations. Eliminating the magnetic field from \eqref{eq:H}–\eqref{eq:E} gives
-\begin{equation}
-\nabla\times\mu_r^{-1} \nabla \times E + i\omega\mu_0\sigma E = \nabla\times \mu_r^{-1} M_s -i\omega\mu_0 J_s,
+\begin{equation}\label{eq:curlcurl}
+\nabla\times\mu_r^{-1} \nabla \times E - i\omega\mu_0\sigma E = \nabla\times \mu_r^{-1} M_s + i\omega\mu_0 J_s,
 \end{equation}
-which for the MT case (zero sources) reduces to a homogeneous equation solved with boundary conditions derived from the 1D layered‑earth analytic solution. The discretisation uses a staggered grid (Yee cell) with electric fields on edges and magnetic fields on faces, ensuring proper handling of material discontinuities and divergence‑free conditions \citep{Yee1966}.
+which for the MT case (zero sources, i.e., $M_s=0$ and $J_s=0$) reduces to a homogeneous equation solved with boundary conditions derived from the 1D layered‑earth analytic solution. The discretisation uses a staggered grid (Yee cell) with electric fields on edges and magnetic fields on faces, ensuring proper handling of material discontinuities and divergence‑free conditions \citep{Yee1966}.
 
 Instead of assembling the global system matrix explicitly, we implement the action of the discrete curl–curl operator as a sequence of local operations on the grid. This matrix‑free approach drastically reduces memory consumption and allows the use of the same operator in the multigrid cycles. The geometrical multigrid method constructs a hierarchy of nested grids by coarsening the original mesh by a factor of two in each direction \citep{BriggsEtAl2000}. On each level we apply:
 
 \begin{itemize}
-  \item \textbf{Smoothing}: a simple iterative method (e.g., damped Jacobi, Gauss–Seidel, or a polynomial smoother) to reduce high‑frequency errors. For the curl–curl operator, a hybrid smoother that combines a Gauss–Seidel sweep on the electric field components with a divergence correction often improves robustness \citep{Mulder2006, YangPing2024}.
+  \item \textbf{Smoothing}: a simple iterative method (e.g., damped Jacobi, Gauss–Seidel, or a polynomial smoother) to reduce high‑frequency errors. For the curl–curl operator, a hybrid smoother that combines a Gauss–Seidel sweep on the electric field components with a divergence correction often improves robustness \citep{Mulder2006, Yang_2024_multigrid}.
   \item \textbf{Restriction}: the residual is transferred to the coarser grid using a full‑weighting restriction operator.
   \item \textbf{Coarse‑grid correction}: the coarse‑level system is solved either exactly (if the grid is sufficiently small) or via another multigrid cycle, leading to a V‑cycle, W‑cycle, or full multigrid (FMG) schedule.
   \item \textbf{Prolongation}: the coarse‑grid correction is interpolated back to the fine grid using bilinear (or trilinear) interpolation.
@@ -145,7 +145,7 @@ Because the frequency‑domain curl–curl operator is complex and its convergen
 
 For MT inversion, the same multigrid solver is used for both the forward problems (two polarisations per frequency) and the adjoint problems. The adjoint equation (derived below) has the same form as the forward equation but with a different source term, so the same solver can be applied without modification. This reuse simplifies the library design and reduces code duplication.
 
-Recent studies have demonstrated that multigrid methods can significantly outperform conventional Krylov subspace solvers for 3D electromagnetic forward problems, particularly when the grid becomes large \citep{Mulder2006, WangEtAl2022, HuangEtAl2023}. The matrix‑free GMG implementation in \texttt{libcMT} follows the approach described by \citet{YangPing2024}, who showed that a well‑tuned multigrid solver with a matrix‑free stencil can achieve near‑linear scaling and low memory footprint on fine grids. In our context, the same GMG engine is called repeatedly for many frequencies and inversion iterations, making the initial setup cost of the multigrid hierarchy negligible compared to the total solve time.
+Recent studies have demonstrated that multigrid methods can significantly outperform conventional Krylov subspace solvers for 3D electromagnetic forward problems, particularly when the grid becomes large \citep{Mulder2006, WangEtAl2022, HuangEtAl2023}. The matrix‑free GMG implementation in \texttt{libcMT} follows the approach described by \citet{Yang_2024_multigrid}, who showed that a well‑tuned multigrid solver with a matrix‑free stencil can achieve near‑linear scaling and low memory footprint on fine grids. In our context, the same GMG engine is called repeatedly for many frequencies and inversion iterations, making the initial setup cost of the multigrid hierarchy negligible compared to the total solve time.
 
 \section{MT inversion}
 
@@ -161,23 +161,32 @@ Taking the derivative of equation~\eqref{eq:fwd} with respect to the model param
   \frac{\partial u^p}{\partial m} = -A^{-1}(m)\frac{\partial A(m)}{\partial m}u^p \quad (p=1,2).
 \end{equation}
 
-Let the data vector be $d=(Z_{xx}, Z_{xy}, Z_{yx}, Z_{yy})^T$, and define the data residual as $\Delta d = d^{\mathrm{cal}} - d^{\mathrm{obs}}$. A practical MT inversion also requires model regularisation, so we consider the objective
+Let the data vector be $d=(Z_{xx}, Z_{xy}, Z_{yx}, Z_{yy})^T$, and define the data residual as $\Delta d = d^{\mathrm{cal}} - d^{\mathrm{obs}}$. In principle, a 3D MT inversion may use all four impedance components because the diagonal terms can contain genuine 3D information. In practice, however, the diagonal impedances $Z_{xx}$ and $Z_{yy}$ are often smaller in magnitude and more strongly contaminated by noise, galvanic distortion, site effects, or processing artefacts than the off-diagonal terms $Z_{xy}$ and $Z_{yx}$. For this reason, we retain the full impedance tensor in the data vector but do not necessarily weight all four components equally. Instead, the data-weighting matrix $W_d$ is chosen to downweight unreliable diagonal data through larger assigned errors, so that these data contribute to the inversion without forcing the optimisation to overfit unstable measurements. A practical choice is to define the standard deviation of each impedance datum as
 \begin{equation}
-\Phi(m) = \Phi_d(m) + \Phi_m(m),
+W^{-1}_{ij}=\max\!\left(\epsilon^{\mathrm{rel}}_{ij}|Z_{ij}|,\,\epsilon^{\mathrm{abs}}_{ij}\sqrt{|Z_{xy}Z_{yx}|}\right),
 \end{equation}
-with data misfit
+where $(i,j)\in\{x,y\}^2$, $\epsilon^{\mathrm{rel}}_{ij}$ is a relative error floor, and $\epsilon^{\mathrm{abs}}_{ij}$ is an absolute floor referenced to the characteristic off-diagonal amplitude. The second term is particularly useful for diagonal elements, because when $|Z_{xx}|$ or $|Z_{yy}|$ is very small, a purely relative floor may still overweight those data. In practice one may use relatively small errors for the off-diagonal components, for example $\epsilon^{\mathrm{rel}}_{xy}=\epsilon^{\mathrm{rel}}_{yx}=0.03$, and substantially larger values for the diagonal components, for example
 \begin{equation}
-\Phi_d(m) = \frac{1}{2}\|\Delta d\|^2=\frac{1}{2}\sum_\omega \Delta d^H \Delta d,
+  \left\{
+\begin{aligned}
+W^{-1}_{xy} &= 0.03|Z_{xy}|,\\
+W^{-1}_{yx} &= 0.03|Z_{yx}|,\\
+W^{-1}_{xx} &= \max\!\left(0.20|Z_{xx}|,\,0.03\sqrt{|Z_{xy}Z_{yx}|}\right),\\
+W^{-1}_{yy} &= \max\!\left(0.20|Z_{yy}|,\,0.03\sqrt{|Z_{xy}Z_{yx}|}\right).
+\end{aligned}
+\right.
 \end{equation}
-and a standard quadratic regularisation term
+This strategy keeps the diagonal responses in the inversion when they contain useful 3D information, but automatically reduces their influence when they are erratic or near the noise level. In cases where some diagonal data are clearly unusable at particular sites or periods, their errors can be further inflated or the affected entries can be omitted altogether. At present we consider only the data-misfit objective
 \begin{equation}
-\Phi_m(m)=\frac{\lambda}{2}\|W(m-m_{\mathrm{ref}})\|^2,
+\Phi_d(m) = \frac{1}{2}\|W_d\Delta d\|^2=\frac{1}{2}\sum_\omega \Delta d^H W_d^H W_d\Delta d,
 \end{equation}
-where $W$ is a weighting or roughness operator, $m_{\mathrm{ref}}$ is a reference model, and $\lambda>0$ controls the trade‑off between data fit and model structure. We first derive the gradient of $\Phi_d$; the regularisation contribution is then added directly. The gradient of the data misfit with respect to the model parameter is given by
+whose gradient with respect to the model parameter is given by
 \begin{equation}
-  \frac{\partial \Phi_d}{\partial m}=\Re\sum_\omega \Delta d^H \frac{\partial d^{\mathrm{cal}}}{\partial m}
-  =\Re\sum_\omega \sum_p\Delta d^H \frac{\partial d^{\mathrm{cal}}}{\partial u^p}\frac{\partial u^p}{\partial m}
-    = \Re\sum_\omega \sum_p \underbrace{-\Delta d^H \frac{\partial d^{\mathrm{cal}}}{\partial u^p}}_{(s^p)^H} A^{-1}(m)\frac{\partial A(m)}{\partial m}u^p.
+  \begin{aligned}
+  \frac{\partial \Phi_d}{\partial m}=&\Re\sum_\omega \Delta d^H W_d^H W_d\frac{\partial d^{\mathrm{cal}}}{\partial m}\\
+  =&\Re\sum_\omega \sum_p\Delta d^H W_d^H W_d\frac{\partial d^{\mathrm{cal}}}{\partial u^p}\frac{\partial u^p}{\partial m}\\
+  =&\Re\sum_\omega \sum_p \underbrace{-\Delta d^H W_d^H W_d\frac{\partial d^{\mathrm{cal}}}{\partial u^p}}_{(s^p)^H} A^{-1}(m)\frac{\partial A(m)}{\partial m}u^p.
+  \end{aligned}
 \end{equation}
 Let us define $(v^p)^H = (s^p)^H A(m)^{-1}$, that is,
 \begin{equation}\label{eq:adj}
@@ -194,7 +203,7 @@ For the isotropic case, using
 \begin{equation}
   \frac{\partial A(m)}{\partial \sigma}=\frac{\partial }{\partial \sigma}\begin{bmatrix}
     -\sigma &\nabla\times \\
-    \nabla\times & i\omega\mu
+    \nabla\times & -i\omega\mu
   \end{bmatrix}=\begin{bmatrix}
   -1 & 0\\
   0 & 0
@@ -210,27 +219,25 @@ For a VTI anisotropic medium, the gradients with respect to the horizontal and v
   \qquad
   \frac{\partial \Phi_d}{\partial \sigma_v} = -\Re \sum_\omega \sum_p \overline{v_{E_z}^p}^T\cdot u_{E_z}^p.
 \end{equation}
-We take the logarithmic conductivity as the model parameter, $m:=\ln \sigma$. The chain rule then gives $\frac{\partial \Phi_d}{\partial m}=\sigma \frac{\partial \Phi_d}{\partial \sigma}$. The full gradient of the regularised objective is therefore
-\begin{equation}
-\frac{\partial \Phi}{\partial m} = \frac{\partial \Phi_d}{\partial m} + \lambda W^T W (m-m_{\mathrm{ref}}).
-\end{equation}
+We take the logarithmic conductivity as the model parameter, $m:=\ln \sigma$. The chain rule then gives $\frac{\partial \Phi_d}{\partial m}=\sigma \frac{\partial \Phi_d}{\partial \sigma}$.
 
 These expressions show that the gradients are available once the forward and adjoint fields have been computed for both the XY and YX polarisations. We now focus on computing the adjoint field $v^p$ from the virtual source $s^p$. Taking the complex conjugate of equation~\eqref{eq:adj} gives
 \begin{equation}\label{eq:adjconj}
 A^T(m) \overline{v^p}=\overline{s^p}.
 \end{equation}
 Because $A^T(m)=A(m)$ (the discrete curl–curl operator is symmetric), the same geometrical multigrid solver can be used to efficiently compute the conjugate of the adjoint field $v^p$, provided that the source term $\overline{s^p}$ can be constructed.
-
-Since 
+The right‑hand side of equation~\eqref{eq:adjconj} becomes
 \begin{equation}
-s^p=-(\Delta d^H \frac{\partial d^{\mathrm{cal}}}{\partial u^p})^H=-(\frac{\partial d^{\mathrm{cal}}}{\partial u^p})^H \Delta d,
+  \begin{aligned}
+  \overline{s^p}=&-\overline{(\Delta d^H W_d^H W_d \frac{\partial d^{\mathrm{cal}}}{\partial u^p})^H}
+  =-( W_d\frac{\partial d^{\mathrm{cal}}}{\partial u^p})^T \overline{W_d \Delta d}\\
+  =&-\overline{W_{xx}\Delta Z_{xx}} W_{xx}\frac{\partial Z_{xx}}{\partial u^p}
+ -\overline{W_{xy}\Delta Z_{xy}}W_{xy}\frac{\partial Z_{xy}}{\partial u^p}
+  -\overline{W_{yx}\Delta Z_{yx}} W_{yx}\frac{\partial Z_{yx}}{\partial u^p}
+  -\overline{W_{yy}\Delta Z_{yy}}W_{yy}\frac{\partial Z_{yy}}{\partial u^p}.
+  \end{aligned}
 \end{equation}
-the right‑hand side of equation~\eqref{eq:adjconj} becomes
-\begin{equation}
-\overline{s^p}=-(\frac{\partial d^{\mathrm{cal}}}{\partial u^p})^T \overline{\Delta d}
-  =-\overline{\Delta Z_{xx}}\frac{\partial Z_{xx}}{\partial u^p} - \overline{\Delta Z_{xy}}\frac{\partial Z_{xy}}{\partial u^p}
-  -\overline{\Delta Z_{yx}}\frac{\partial Z_{yx}}{\partial u^p} - \overline{\Delta Z_{yy}}\frac{\partial Z_{yy}}{\partial u^p}.
-\end{equation}
+where $W_{xx}$, $W_{xy}$, $W_{yx}$, and $W_{yy}$ denote the diagonal entries of the data-weighting matrix $W_d$ defined above from the assigned impedance errors. 
 
 Define $D = H_x^1 H_y^2 - H_x^2 H_y^1$. From equation~\eqref{eq:Zij}, we obtain the following derivatives:
 
@@ -356,13 +363,9 @@ Define $D = H_x^1 H_y^2 - H_x^2 H_y^1$. From equation~\eqref{eq:Zij}, we obtain 
 \end{equation}
 \end{itemize}
 
-The effective source term in equation~\eqref{eq:fwd} is generated by the prescribed 1D boundary field $u_{\mathrm{bc}}^p$ after elimination of the fixed boundary values. Equivalently, the total field $u_{\mathrm{tot}}^p = u_{\mathrm{bc}}^p + u^p$ satisfies the homogeneous MT equation with the required boundary conditions, whereas the interior correction field solves the reduced linear system used by the matrix‑free multigrid solver. In practice, we perform electromagnetic modelling with the matrix‑free multigrid method, in which the electric field is computed directly and the magnetic field is then recovered from the electric field. Substituting equation~\eqref{eq:H} into equation~\eqref{eq:E} to eliminate the magnetic field yields
+The effective source term in equation~\eqref{eq:fwd} is generated by the prescribed 1D boundary field $u_{\mathrm{bc}}^p$ after elimination of the fixed boundary values. Equivalently, the total field $u_{\mathrm{tot}}^p = u_{\mathrm{bc}}^p + u^p$ satisfies the homogeneous MT equation with the required boundary conditions, whereas the interior correction field solves the reduced linear system used by the matrix‑free multigrid solver. In practice, we perform electromagnetic modelling with the matrix‑free multigrid method, in which the electric field is computed directly and the magnetic field is then recovered from the electric field. The adjoint equation~\eqref{eq:adj} resembles the forward equation~\ref{eq:curlcurl}
 \begin{equation}
-\nabla\times\mu_r^{-1} \nabla \times E + i\omega\mu_0\sigma E = \nabla\times \mu_r^{-1} M_s -i\omega\mu_0 J_s,
-\end{equation}
-with $M_s=0$ and $J_s=0$. Similarly, the adjoint equation~\eqref{eq:adj} can be expressed as
-\begin{equation}
-\nabla\times\mu_r^{-1} \nabla \times \overline{v_E^p} + i\omega\mu_0\sigma \overline{v_E^p} = \nabla\times\mu_r^{-1} \overline{s_H^p} -i\omega\mu_0 \overline{s_E^p},
+\nabla\times\mu_r^{-1} \nabla \times \overline{v_E^p} - i\omega\mu_0\sigma \overline{v_E^p} = \nabla\times\mu_r^{-1} \overline{s_H^p} + i\omega\mu_0 \overline{s_E^p},
 \end{equation}
 where we denote the adjoint field by $\overline{v^p}=(\overline{v_E^p}, \overline{v_H^p})^T$ and the adjoint source by $\overline{s^p}=(\overline{s_E^p}, \overline{s_H^p})^T$.
 
@@ -514,16 +517,23 @@ The results should be organised as follows:
   \item A short discussion explaining when batching multiple frequencies per task is beneficial and when one-frequency tasks are preferable.
 \end{itemize}
 
-\subsection{Example 4: Synthetic inversion test}
+\subsection{Example 4: Synthetic inversion test to investigate importance of parametrization}
 
-The final example should demonstrate the complete inversion workflow. A synthetic 3D model, such as one or two conductive blocks in a resistive host, should be used to generate data at multiple sites and frequencies. The inversion should start from a smooth background model and use the adjoint-based gradient together with the regularised objective introduced above. This example should establish that the software is not only efficient at solving forward problems, but also suitable for repeated use inside an inversion loop.
+The final example should demonstrate the complete inversion workflow on a synthetic 3D model for which the true conductivity structure is known. A suitable test is one or two conductive bodies embedded in a resistive host, optionally with a layered background and a VTI anisotropic zone in part of the model. Synthetic MT responses should be generated at multiple sites and over a sufficiently broad frequency band, and realistic Gaussian noise should be added using the same component-dependent error floors introduced in the data-weighting strategy. The inversion should start from a smooth background model and use the adjoint-based data-misfit gradient defined above. In this way, the example shows not only that \texttt{libcMT} can solve isolated forward problems efficiently, but also that it remains stable and practical when embedded in a repeated inversion loop.
+
+This example is also the natural place to investigate the influence of model parametrization. A useful comparison is to perform separate inversions with an isotropic model, a full VTI model parametrised by $(\sigma_h,\sigma_v)$, and a reduced anisotropic parametrisation such as $(\sigma_h,\sigma_v/\sigma_h)$ or $(\rho_h,\lambda)$ with $\lambda=\sqrt{\rho_v/\rho_h}$. Because $\rho=1/\sigma$, this definition is equivalent to $\lambda=\sqrt{\sigma_h/\sigma_v}$ when written in conductivity variables. The goal is not merely to compare final misfit values, but to determine which parametrisation yields the best balance between recoverability, stability, and physical interpretability under realistic noise.
+
+Several issues should be examined explicitly. First, one should assess whether the horizontal conductivity is recovered more reliably than the vertical conductivity, which is often expected in MT because the data are typically more sensitive to horizontal current flow. Second, one should examine parameter cross-talk: for example, whether errors in anisotropy are absorbed into the background conductivity or whether $\sigma_h$ and $\sigma_v$ trade off against one another in poorly resolved regions. Third, the inversion should be tested for robustness with respect to the starting model, because an apparently good final fit can still correspond to an unstable or non-unique anisotropic reconstruction. A reduced parametrisation may prove advantageous if it suppresses unnecessary degrees of freedom while still capturing the dominant anisotropic behaviour.
+
+To make the comparison convincing, the interpretation should not rely on the objective function alone. It is more informative to compare reconstruction quality in the target region, recovery of anomaly geometry and amplitude, the depth dependence of anisotropy, and the spatial distribution of data residuals. If computational cost differs significantly between parametrisations, the paper should also report whether the more expressive model leads to materially slower convergence or to a larger number of forward and adjoint solves. This allows the reader to judge whether the additional model complexity is justified by improved imaging performance.
 
 A clear presentation sequence is:
 \begin{itemize}
   \item A figure showing the true model, the initial model, and the recovered model in several depth slices or cross-sections.
-  \item A convergence plot of total objective, data misfit, and gradient norm versus iteration number.
-  \item A table reporting the final data misfit, number of forward/adjoint solves, and total runtime.
-  \item If possible, a brief sensitivity test showing the effect of mesh resolution or regularisation weight on the recovered model.
+  \item A convergence plot of data misfit and gradient norm versus iteration number.
+  \item A comparison figure showing the recovered isotropic and anisotropic models, or alternatively the recovered $\sigma_h$, $\sigma_v$, and anisotropy ratio.
+  \item A table reporting the final data misfit, number of forward and adjoint solves, and total runtime for each parametrisation.
+  \item If possible, a brief sensitivity test showing the effect of the starting model or mesh resolution on the recovered model.
 \end{itemize}
 
 \subsection{Recommended presentation schedule}
@@ -544,7 +554,7 @@ If the paper must remain short, Examples 1 and 4 should appear in the main text,
 
 We have introduced \texttt{libcMT}, a C library architecture for 3D magnetotelluric inversion that combines a matrix‑free geometrical multigrid solver with dynamic MPI parallelisation over frequencies. The manuscript has presented the governing equations, the adjoint‑based gradient formulation, the matrix‑free GMG strategy for repeated forward and adjoint solves, and the rationale for dynamic frequency scheduling in heterogeneous workloads. Taken together, these components define an efficient implementation framework for large 3D MT inversion problems.
 
-Future work will focus on extending the library to support more complex physical models, such as full anisotropy and induced polarisation effects, as well as incorporating non‑quadratic regularisation techniques such as total variation or wavelet‑based constraints. Another important next step is a systematic numerical evaluation, including verification against analytical or benchmark MT models, comparison with Krylov‑based solvers, and strong‑ and weak‑scaling tests for the dynamic MPI implementation. We also plan to investigate GPU acceleration of the matrix‑free operator and multigrid cycles for very large 3D models.
+Future work will focus on extending the library to support more complex physical models, such as full anisotropy and induced polarisation effects. Another important next step is a systematic numerical evaluation, including verification against analytical or benchmark MT models, comparison with Krylov‑based solvers, and strong‑ and weak‑scaling tests for the dynamic MPI implementation. We also plan to investigate GPU acceleration of the matrix‑free operator and multigrid cycles for very large 3D models.
 
 \bibliographystyle{apalike}
 \bibliography{ref}
