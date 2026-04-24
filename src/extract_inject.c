@@ -13,21 +13,6 @@
 
 int find_index(int n, double *x, double val);
 
-static double volume_ex(int i, int j, int k)
-{
-  return gmg[0].d1s[i]*gmg[0].d2[j]*gmg[0].d3[k];
-}
-
-static double volume_ey(int i, int j, int k)
-{
-  return gmg[0].d1[i]*gmg[0].d2s[j]*gmg[0].d3[k];
-}
-
-static double volume_ez(int i, int j, int k)
-{
-  return gmg[0].d1[i]*gmg[0].d2[j]*gmg[0].d3s[k];
-}
-
 static double volume_hx(int i, int j, int k)
 {
   return gmg[0].d1[i]*gmg[0].d2s[j]*gmg[0].d3s[k];
@@ -36,6 +21,11 @@ static double volume_hx(int i, int j, int k)
 static double volume_hy(int i, int j, int k)
 {
   return gmg[0].d1s[i]*gmg[0].d2[j]*gmg[0].d3s[k];
+}
+
+static double volume_hz(int i, int j, int k)
+{
+  return gmg[0].d1s[i]*gmg[0].d2s[j]*gmg[0].d3[k];
 }
 
 void extract_mt_data(acq_t *acq, int ifreq, int ipolar, float _Complex ***E)
@@ -283,6 +273,9 @@ void inject_adjoint_sources(acq_t *acq, int ifreq, int ipolar)
   d3s = gmg[0].d3s;
   invmur = gmg[0].invmur;
   
+  // Store adjoint receiver amplitudes as integrated loads. The electric
+  // source enters the RHS directly; magnetic loads are converted to densities
+  // below because invmur is stored with a cell-volume factor.
   //finally inject source terms for E and H
   for (irec = 0; irec < acq->nrec; irec++) {
     i = find_index(gmg[0].n1, gmg[0].x1s, acq->rec_x1[irec]);
@@ -295,14 +288,14 @@ void inject_adjoint_sources(acq_t *acq, int ifreq, int ipolar)
     w2 = (acq->rec_x2[irec] - gmg[0].x2[j]) / gmg[0].d2s[j];
     w3 = (acq->rec_x3[irec] - gmg[0].x3[k]) / gmg[0].d3s[k];
     s = emf_->s_Ex[ipolar][ifreq][irec];
-    Ex[k][j][i] += s * (1. - w1) * (1. - w2) * (1. - w3) / volume_ex(i, j, k);
-    Ex[k][j][ip1] += s * w1 * (1. - w2) * (1. - w3) / volume_ex(ip1, j, k);
-    Ex[k][jp1][i] += s * (1. - w1) * w2 * (1. - w3) / volume_ex(i, jp1, k);
-    Ex[k][jp1][ip1] += s * w1 * w2 * (1. - w3) / volume_ex(ip1, jp1, k);
-    Ex[kp1][j][i] += s * (1. - w1) * (1. - w2) * w3 / volume_ex(i, j, kp1);
-    Ex[kp1][j][ip1] += s * w1 * (1. - w2) * w3 / volume_ex(ip1, j, kp1);
-    Ex[kp1][jp1][i] += s * (1. - w1) * w2 * w3 / volume_ex(i, jp1, kp1);
-    Ex[kp1][jp1][ip1] += s * w1 * w2 * w3 / volume_ex(ip1, jp1, kp1);
+    Ex[k][j][i] += s * (1. - w1) * (1. - w2) * (1. - w3);
+    Ex[k][j][ip1] += s * w1 * (1. - w2) * (1. - w3);
+    Ex[k][jp1][i] += s * (1. - w1) * w2 * (1. - w3);
+    Ex[k][jp1][ip1] += s * w1 * w2 * (1. - w3);
+    Ex[kp1][j][i] += s * (1. - w1) * (1. - w2) * w3;
+    Ex[kp1][j][ip1] += s * w1 * (1. - w2) * w3;
+    Ex[kp1][jp1][i] += s * (1. - w1) * w2 * w3;
+    Ex[kp1][jp1][ip1] += s * w1 * w2 * w3;
 
     i = find_index(gmg[0].n1 + 1, gmg[0].x1, acq->rec_x1[irec]);
     j = find_index(gmg[0].n2, gmg[0].x2s, acq->rec_x2[irec]);
@@ -314,14 +307,14 @@ void inject_adjoint_sources(acq_t *acq, int ifreq, int ipolar)
     w2 = (acq->rec_x2[irec] - gmg[0].x2s[j]) / gmg[0].d2[jp1];
     w3 = (acq->rec_x3[irec] - gmg[0].x3[k]) / gmg[0].d3s[k];
     s = emf_->s_Ey[ipolar][ifreq][irec];
-    Ey[k][j][i] += s * (1. - w1) * (1. - w2) * (1. - w3) / volume_ey(i, j, k);
-    Ey[k][j][ip1] += s * w1 * (1. - w2) * (1. - w3) / volume_ey(ip1, j, k);
-    Ey[k][jp1][i] += s * (1. - w1) * w2 * (1. - w3) / volume_ey(i, jp1, k);
-    Ey[k][jp1][ip1] += s * w1 * w2 * (1. - w3) / volume_ey(ip1, jp1, k);
-    Ey[kp1][j][i] += s * (1. - w1) * (1. - w2) * w3 / volume_ey(i, j, kp1);
-    Ey[kp1][j][ip1] += s * w1 * (1. - w2) * w3 / volume_ey(ip1, j, kp1);
-    Ey[kp1][jp1][i] += s * (1. - w1) * w2 * w3 / volume_ey(i, jp1, kp1);
-    Ey[kp1][jp1][ip1] += s * w1 * w2 * w3 / volume_ey(ip1, jp1, kp1);
+    Ey[k][j][i] += s * (1. - w1) * (1. - w2) * (1. - w3);
+    Ey[k][j][ip1] += s * w1 * (1. - w2) * (1. - w3);
+    Ey[k][jp1][i] += s * (1. - w1) * w2 * (1. - w3);
+    Ey[k][jp1][ip1] += s * w1 * w2 * (1. - w3);
+    Ey[kp1][j][i] += s * (1. - w1) * (1. - w2) * w3;
+    Ey[kp1][j][ip1] += s * w1 * (1. - w2) * w3;
+    Ey[kp1][jp1][i] += s * (1. - w1) * w2 * w3;
+    Ey[kp1][jp1][ip1] += s * w1 * w2 * w3;
 
     i = find_index(gmg[0].n1 + 1, gmg[0].x1, acq->rec_x1[irec]);
     j = find_index(gmg[0].n2, gmg[0].x2s, acq->rec_x2[irec]);
@@ -333,14 +326,14 @@ void inject_adjoint_sources(acq_t *acq, int ifreq, int ipolar)
     w2 = (acq->rec_x2[irec] - gmg[0].x2s[j]) / gmg[0].d2[jp1];
     w3 = (acq->rec_x3[irec] - gmg[0].x3s[k]) / gmg[0].d3[kp1];
     s = emf_->s_Hx[ipolar][ifreq][irec];
-    Hx[k][j][i] += s * (1. - w1) * (1. - w2) * (1. - w3) / volume_hx(i, j, k);
-    Hx[k][j][ip1] += s * w1 * (1. - w2) * (1. - w3) / volume_hx(ip1, j, k);
-    Hx[k][jp1][i] += s * (1. - w1) * w2 * (1. - w3) / volume_hx(i, jp1, k);
-    Hx[k][jp1][ip1] += s * w1 * w2 * (1. - w3) / volume_hx(ip1, jp1, k);
-    Hx[kp1][j][i] += s * (1. - w1) * (1. - w2) * w3 / volume_hx(i, j, kp1);
-    Hx[kp1][j][ip1] += s * w1 * (1. - w2) * w3 / volume_hx(ip1, j, kp1);
-    Hx[kp1][jp1][i] += s * (1. - w1) * w2 * w3 / volume_hx(i, jp1, kp1);
-    Hx[kp1][jp1][ip1] += s * w1 * w2 * w3 / volume_hx(ip1, jp1, kp1);
+    Hx[k][j][i] += s * (1. - w1) * (1. - w2) * (1. - w3);
+    Hx[k][j][ip1] += s * w1 * (1. - w2) * (1. - w3);
+    Hx[k][jp1][i] += s * (1. - w1) * w2 * (1. - w3);
+    Hx[k][jp1][ip1] += s * w1 * w2 * (1. - w3);
+    Hx[kp1][j][i] += s * (1. - w1) * (1. - w2) * w3;
+    Hx[kp1][j][ip1] += s * w1 * (1. - w2) * w3;
+    Hx[kp1][jp1][i] += s * (1. - w1) * w2 * w3;
+    Hx[kp1][jp1][ip1] += s * w1 * w2 * w3;
 
     i = find_index(gmg[0].n1, gmg[0].x1s, acq->rec_x1[irec]);
     j = find_index(gmg[0].n2 + 1, gmg[0].x2, acq->rec_x2[irec]);
@@ -352,14 +345,14 @@ void inject_adjoint_sources(acq_t *acq, int ifreq, int ipolar)
     w2 = (acq->rec_x2[irec] - gmg[0].x2[j]) / gmg[0].d2s[j];
     w3 = (acq->rec_x3[irec] - gmg[0].x3s[k]) / gmg[0].d3[kp1];
     s = emf_->s_Hy[ipolar][ifreq][irec];
-    Hy[k][j][i] += s * (1. - w1) * (1. - w2) * (1. - w3) / volume_hy(i, j, k);
-    Hy[k][j][ip1] += s * w1 * (1. - w2) * (1. - w3) / volume_hy(ip1, j, k);
-    Hy[k][jp1][i] += s * (1. - w1) * w2 * (1. - w3) / volume_hy(i, jp1, k);
-    Hy[k][jp1][ip1] += s * w1 * w2 * (1. - w3) / volume_hy(ip1, jp1, k);
-    Hy[kp1][j][i] += s * (1. - w1) * (1. - w2) * w3 / volume_hy(i, j, kp1);
-    Hy[kp1][j][ip1] += s * w1 * (1. - w2) * w3 / volume_hy(ip1, j, kp1);
-    Hy[kp1][jp1][i] += s * (1. - w1) * w2 * w3 / volume_hy(i, jp1, kp1);
-    Hy[kp1][jp1][ip1] += s * w1 * w2 * w3 / volume_hy(ip1, jp1, kp1);
+    Hy[k][j][i] += s * (1. - w1) * (1. - w2) * (1. - w3);
+    Hy[k][j][ip1] += s * w1 * (1. - w2) * (1. - w3);
+    Hy[k][jp1][i] += s * (1. - w1) * w2 * (1. - w3);
+    Hy[k][jp1][ip1] += s * w1 * w2 * (1. - w3);
+    Hy[kp1][j][i] += s * (1. - w1) * (1. - w2) * w3;
+    Hy[kp1][j][ip1] += s * w1 * (1. - w2) * w3;
+    Hy[kp1][jp1][i] += s * (1. - w1) * w2 * w3;
+    Hy[kp1][jp1][ip1] += s * w1 * w2 * w3;
   }
 
   //form the right hand side of adjoint equation
@@ -377,27 +370,27 @@ void inject_adjoint_sources(acq_t *acq, int ifreq, int ipolar)
 	im1 = MAX(i-1, 0);
 
 	if(j>0 && k>0){
-	  hzp = Hz[k][j][i] * 0.5*(invmur[k][j][i] + invmur[km1][j][i]);//Hz(I,J,k)
-	  hzm = Hz[k][jm1][i] * 0.5*(invmur[k][jm1][i] + invmur[km1][jm1][i]);//Hz(I,J-1,k)
-	  hyp = Hy[k][j][i] * 0.5*(invmur[k][j][i] + invmur[k][jm1][i]);//Hy(I,j,K)
-	  hym = Hy[km1][j][i] * 0.5*(invmur[km1][j][i] + invmur[km1][jm1][i]);//Hy(I,j,K-1)
-	  gmg[0].f[0][k][j][i] = ((hzp/d2s[j]-hzm/d2s[jm1]) - (hyp/d3s[k]-hym/d3s[km1])) + I_omega_mu0*Ex[k][j][i]*volume_ex(i, j, k);
+	  hzp = Hz[k][j][i] * 0.5*(invmur[k][j][i] + invmur[km1][j][i]) / volume_hz(i, j, k);//Hz(I,J,k)
+	  hzm = Hz[k][jm1][i] * 0.5*(invmur[k][jm1][i] + invmur[km1][jm1][i]) / volume_hz(i, jm1, k);//Hz(I,J-1,k)
+	  hyp = Hy[k][j][i] * 0.5*(invmur[k][j][i] + invmur[k][jm1][i]) / volume_hy(i, j, k);//Hy(I,j,K)
+	  hym = Hy[km1][j][i] * 0.5*(invmur[km1][j][i] + invmur[km1][jm1][i]) / volume_hy(i, j, km1);//Hy(I,j,K-1)
+	  gmg[0].f[0][k][j][i] = ((hzp/d2s[j]-hzm/d2s[jm1]) - (hyp/d3s[k]-hym/d3s[km1])) + I_omega_mu0*Ex[k][j][i];
 	}
 
 	if(i>0 && k>0){
-	  hxp = Hx[k][j][i] * 0.5*(invmur[k][j][i] + invmur[k][j][im1]);//Hx(i,J,K)
-	  hxm = Hx[km1][j][i] * 0.5*(invmur[km1][j][i] + invmur[km1][j][im1]);//Hx(i,J,K-1)
-	  hzp = Hz[k][j][i] * 0.5*(invmur[k][j][i] + invmur[km1][j][i]);//Hz(I,J,k)
-	  hzm = Hz[k][j][im1] * 0.5*(invmur[k][j][im1] + invmur[km1][j][im1]);//Hz(I-1,J,k)
-	  gmg[0].f[1][k][j][i] = ((hxp/d3s[k]-hxm/d3s[km1]) - (hzp/d1s[i]-hzm/d1s[im1])) + I_omega_mu0*Ey[k][j][i]*volume_ey(i, j, k);
+	  hxp = Hx[k][j][i] * 0.5*(invmur[k][j][i] + invmur[k][j][im1]) / volume_hx(i, j, k);//Hx(i,J,K)
+	  hxm = Hx[km1][j][i] * 0.5*(invmur[km1][j][i] + invmur[km1][j][im1]) / volume_hx(i, j, km1);//Hx(i,J,K-1)
+	  hzp = Hz[k][j][i] * 0.5*(invmur[k][j][i] + invmur[km1][j][i]) / volume_hz(i, j, k);//Hz(I,J,k)
+	  hzm = Hz[k][j][im1] * 0.5*(invmur[k][j][im1] + invmur[km1][j][im1]) / volume_hz(im1, j, k);//Hz(I-1,J,k)
+	  gmg[0].f[1][k][j][i] = ((hxp/d3s[k]-hxm/d3s[km1]) - (hzp/d1s[i]-hzm/d1s[im1])) + I_omega_mu0*Ey[k][j][i];
 	}
 
 	if(i>0 && j>0){
-	  hyp = Hy[k][j][i] * 0.5*(invmur[k][j][i] + invmur[k][jm1][i]);//Hy(I,j,K)
-	  hym = Hy[k][j][im1] * 0.5*(invmur[k][j][im1] + invmur[k][jm1][im1]);//Hy(I-1,j,K)
-	  hxp = Hx[k][j][i] * 0.5*(invmur[k][j][i] + invmur[k][j][im1]);//Hx(i,J,K)
-	  hxm = Hx[k][jm1][i] * 0.5*(invmur[k][jm1][i] + invmur[k][jm1][im1]);//Hx(i,J-1,K)
-	  gmg[0].f[2][k][j][i] = ((hyp/d1s[i]-hym/d1s[im1]) - (hxp/d2s[j]-hxm/d2s[jm1])) + I_omega_mu0*Ez[k][j][i]*volume_ez(i, j, k);
+	  hyp = Hy[k][j][i] * 0.5*(invmur[k][j][i] + invmur[k][jm1][i]) / volume_hy(i, j, k);//Hy(I,j,K)
+	  hym = Hy[k][j][im1] * 0.5*(invmur[k][j][im1] + invmur[k][jm1][im1]) / volume_hy(im1, j, k);//Hy(I-1,j,K)
+	  hxp = Hx[k][j][i] * 0.5*(invmur[k][j][i] + invmur[k][j][im1]) / volume_hx(i, j, k);//Hx(i,J,K)
+	  hxm = Hx[k][jm1][i] * 0.5*(invmur[k][jm1][i] + invmur[k][jm1][im1]) / volume_hx(i, jm1, k);//Hx(i,J-1,K)
+	  gmg[0].f[2][k][j][i] = ((hyp/d1s[i]-hym/d1s[im1]) - (hxp/d2s[j]-hxm/d2s[jm1])) + I_omega_mu0*Ez[k][j][i];
 	}
       }
     }
