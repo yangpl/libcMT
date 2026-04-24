@@ -356,7 +356,7 @@ void inject_adjoint_sources(acq_t *acq, int ifreq, int ipolar)
 	im1 = MAX(i-1, 0);
 
 	if(j>0 && k>0){
-	  vol = gmg[0].d1s[i]*gmg[0].d2[j]*gmg[0].d3[k];
+	  vol = gmg[0].d1s[i]*gmg[0].d2[j]*gmg[0].d3[k];//be aware of volume factor has been multiplied in invmur[][][]
 	  hzp = Hz[k][j][i] * 0.5*(invmur[k][j][i] + invmur[km1][j][i]);//Hz(I,J,k)
 	  hzm = Hz[k][jm1][i] * 0.5*(invmur[k][jm1][i] + invmur[km1][jm1][i]);//Hz(I,J-1,k)
 	  hyp = Hy[k][j][i] * 0.5*(invmur[k][j][i] + invmur[k][jm1][i]);//Hy(I,j,K)
@@ -365,7 +365,7 @@ void inject_adjoint_sources(acq_t *acq, int ifreq, int ipolar)
 	}
 
 	if(i>0 && k>0){
-	  vol = gmg[0].d1[i]*gmg[0].d2s[j]*gmg[0].d3[k];
+	  vol = gmg[0].d1[i]*gmg[0].d2s[j]*gmg[0].d3[k];//be aware of volume factor has been multiplied in invmur[][][]
 	  hxp = Hx[k][j][i] * 0.5*(invmur[k][j][i] + invmur[k][j][im1]);//Hx(i,J,K)
 	  hxm = Hx[km1][j][i] * 0.5*(invmur[km1][j][i] + invmur[km1][j][im1]);//Hx(i,J,K-1)
 	  hzp = Hz[k][j][i] * 0.5*(invmur[k][j][i] + invmur[km1][j][i]);//Hz(I,J,k)
@@ -374,7 +374,7 @@ void inject_adjoint_sources(acq_t *acq, int ifreq, int ipolar)
 	}
 
 	if(i>0 && j>0){
-	  vol = gmg[0].d1[i]*gmg[0].d2[j]*gmg[0].d3s[k];
+	  vol = gmg[0].d1[i]*gmg[0].d2[j]*gmg[0].d3s[k];//be aware of volume factor has been multiplied in invmur[][][]
 	  hyp = Hy[k][j][i] * 0.5*(invmur[k][j][i] + invmur[k][jm1][i]);//Hy(I,j,K)
 	  hym = Hy[k][j][im1] * 0.5*(invmur[k][j][im1] + invmur[k][jm1][im1]);//Hy(I-1,j,K)
 	  hxp = Hx[k][j][i] * 0.5*(invmur[k][j][i] + invmur[k][j][im1]);//Hx(i,J,K)
