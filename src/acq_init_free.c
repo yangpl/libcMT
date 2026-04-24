@@ -63,9 +63,9 @@ static void read_hdf5_float_vector(hid_t file_id, const char *name, int n, float
 /*< read receiver file to initialize MT survey geometry >*/
 void acq_init(acq_t *acq, emf_t *emf)
 {
-  static int nd = 5000;
-  float rec_x1[nd], rec_x2[nd], rec_x3[nd], rec_hd[nd], rec_pit[nd];
   float *receiver_position = NULL;
+  float *receiver_azimuth = NULL;
+  float *receiver_dip = NULL;
   float x1min, x1max, x2min, x2max, x3min, x3max;
   float model_x1min, model_x1max, model_x2min, model_x2max, model_x3min, model_x3max;
   int irec;
@@ -106,23 +106,20 @@ void acq_init(acq_t *acq, emf_t *emf)
   file_id = H5Fopen(frec, H5F_ACC_RDONLY, H5P_DEFAULT);
   if(file_id < 0) err("cannot open HDF5 receiver file frec=%s", frec);
   read_hdf5_receiver_positions(file_id, &acq->nrec, &receiver_position);
-  read_hdf5_float_vector(file_id, "receiver_azimuth", acq->nrec, rec_hd);
-  read_hdf5_float_vector(file_id, "receiver_dip", acq->nrec, rec_pit);
+  receiver_azimuth = alloc1float(acq->nrec);
+  receiver_dip = alloc1float(acq->nrec);
+  if(receiver_azimuth == NULL || receiver_dip == NULL) err("cannot allocate receiver orientation arrays");
+  read_hdf5_float_vector(file_id, "receiver_azimuth", acq->nrec, receiver_azimuth);
+  read_hdf5_float_vector(file_id, "receiver_dip", acq->nrec, receiver_dip);
   check_h5(H5Fclose(file_id), "cannot close HDF5 receiver file");
-  for(irec=0; irec<acq->nrec; ++irec){
-    rec_x1[irec] = receiver_position[3*irec];
-    rec_x2[irec] = receiver_position[3*irec + 1];
-    rec_x3[irec] = receiver_position[3*irec + 2];
-  }
-  free1float(receiver_position);
 
   for(irec=0; irec<acq->nrec; ++irec){
-    x1min = MIN(x1min, rec_x1[irec]);
-    x1max = MAX(x1max, rec_x1[irec]);
-    x2min = MIN(x2min, rec_x2[irec]);
-    x2max = MAX(x2max, rec_x2[irec]);
-    x3min = MIN(x3min, rec_x3[irec]);
-    x3max = MAX(x3max, rec_x3[irec]);
+    x1min = MIN(x1min, receiver_position[3*irec]);
+    x1max = MAX(x1max, receiver_position[3*irec]);
+    x2min = MIN(x2min, receiver_position[3*irec + 1]);
+    x2max = MAX(x2max, receiver_position[3*irec + 1]);
+    x3min = MIN(x3min, receiver_position[3*irec + 2]);
+    x3max = MAX(x3max, receiver_position[3*irec + 2]);
   }
 
   if(x1min<acq->x1min) err("receiver location: x<x1min");
@@ -137,13 +134,19 @@ void acq_init(acq_t *acq, emf_t *emf)
   acq->rec_x3 = alloc1float(acq->nrec);
   acq->rec_azimuth = alloc1float(acq->nrec);
   acq->rec_dip = alloc1float(acq->nrec);
+  if(acq->rec_x1 == NULL || acq->rec_x2 == NULL || acq->rec_x3 == NULL ||
+     acq->rec_azimuth == NULL || acq->rec_dip == NULL)
+    err("cannot allocate receiver arrays");
   for(irec=0; irec<acq->nrec; ++irec){
-    acq->rec_x1[irec] = rec_x1[irec];
-    acq->rec_x2[irec] = rec_x2[irec];
-    acq->rec_x3[irec] = rec_x3[irec];
-    acq->rec_azimuth[irec] = PI*rec_hd[irec]/180.;
-    acq->rec_dip[irec] = PI*rec_pit[irec]/180.;
+    acq->rec_x1[irec] = receiver_position[3*irec];
+    acq->rec_x2[irec] = receiver_position[3*irec + 1];
+    acq->rec_x3[irec] = receiver_position[3*irec + 2];
+    acq->rec_azimuth[irec] = PI*receiver_azimuth[irec]/180.;
+    acq->rec_dip[irec] = PI*receiver_dip[irec]/180.;
   }
+  free1float(receiver_position);
+  free1float(receiver_azimuth);
+  free1float(receiver_dip);
 
   if(emf->verb){
     printf("number of receivers: nrec=%d\n", acq->nrec);

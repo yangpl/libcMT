@@ -1661,7 +1661,7 @@ int get_depth(int n)
 void extend_model_init(emf_t *emf, int ifreq);
 void extend_model_free(emf_t *emf);
 void mt1d_init(int nlayer_, double *z);
-void mt1d_free();
+void mt1d_free(void);
 void mt1d_solve_ani(double freq, double *sxx, double *syy, double *sxy,
 		    complex eTopX, complex eTopY, complex *Ex, complex *Ey);
 

@@ -268,7 +268,7 @@ void mt1d_init(int nlayer_, double *z)
 }
 
 /* Release the cached 1D layer-thickness array. */
-void mt1d_free()
+void mt1d_free(void)
 {
   free(h);
 }

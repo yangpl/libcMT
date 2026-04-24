@@ -113,8 +113,6 @@ void inversion_init_data_weights(acq_t *acq, emf_t *emf)
  * keep their own per-frequency field caches and never touch the master-owned tensors. */
 static void zero_master_buffers(void)
 {
-  int ncell = inv_emf->nx * inv_emf->ny * inv_emf->nz;
-
   memset(&inv_emf->d_Ex[0][0][0], 0, 2 * inv_acq->nrec * inv_emf->nfreq * sizeof(float _Complex));
   memset(&inv_emf->d_Ey[0][0][0], 0, 2 * inv_acq->nrec * inv_emf->nfreq * sizeof(float _Complex));
   memset(&inv_emf->d_Hx[0][0][0], 0, 2 * inv_acq->nrec * inv_emf->nfreq * sizeof(float _Complex));
@@ -131,10 +129,9 @@ static void zero_master_buffers(void)
   memset(&inv_emf->s_Ey[0][0][0], 0, 2 * inv_acq->nrec * inv_emf->nfreq * sizeof(float _Complex));
   memset(&inv_emf->s_Hx[0][0][0], 0, 2 * inv_acq->nrec * inv_emf->nfreq * sizeof(float _Complex));
   memset(&inv_emf->s_Hy[0][0][0], 0, 2 * inv_acq->nrec * inv_emf->nfreq * sizeof(float _Complex));
-
-  (void)ncell;
 }
 
+//pack forward data from field vectors into buffer
 static void pack_forward_data(int ifreq, float _Complex *buffer)
 {
   int irec;
@@ -150,6 +147,7 @@ static void pack_forward_data(int ifreq, float _Complex *buffer)
   }
 }
 
+//unpack forward data from butter into field vectors
 static void unpack_forward_data(int ifreq, const float _Complex *buffer)
 {
   int irec;
@@ -165,6 +163,7 @@ static void unpack_forward_data(int ifreq, const float _Complex *buffer)
   }
 }
 
+//pack adjoint sources from source vectors into buffer
 static void pack_adjoint_sources(int ifreq, float _Complex *buffer)
 {
   int irec;
@@ -180,6 +179,7 @@ static void pack_adjoint_sources(int ifreq, float _Complex *buffer)
   }
 }
 
+//unpack adjoint sources from butter to source vectors
 static void unpack_adjoint_sources(int ifreq, const float _Complex *buffer)
 {
   int irec;
@@ -277,9 +277,9 @@ static void solve_adjoint_frequency(int ifreq, float *g)
       for(j = 0; j < inv_emf->ny; ++j) {
         for(i = 0; i < inv_emf->nx; ++i) {
           id = i + inv_emf->nx * (j + inv_emf->ny * k);
-          g[id] += crealf(inv_emf->Efwd[ipolar][ifreq][id] * inv_emf->Eadj[ipolar][ifreq][id]);
-          g[id] += crealf(inv_emf->Efwd[ipolar][ifreq][id + ncell] * inv_emf->Eadj[ipolar][ifreq][id + ncell]);
-          g[id + ncell] += crealf(inv_emf->Efwd[ipolar][ifreq][id + 2 * ncell] * inv_emf->Eadj[ipolar][ifreq][id + 2 * ncell]);
+          g[id] -= crealf(inv_emf->Efwd[ipolar][ifreq][id] * inv_emf->Eadj[ipolar][ifreq][id]);
+          g[id] -= crealf(inv_emf->Efwd[ipolar][ifreq][id + ncell] * inv_emf->Eadj[ipolar][ifreq][id + ncell]);
+          g[id + ncell] -= crealf(inv_emf->Efwd[ipolar][ifreq][id + 2 * ncell] * inv_emf->Eadj[ipolar][ifreq][id + 2 * ncell]);
         }
       }
     }
@@ -293,8 +293,11 @@ static void solve_adjoint_frequency(int ifreq, float *g)
 static double compute_frequency_residual_and_sources(int ifreq)
 {
   int irec;
-  complex det, dZxxdu, dZxydu, dZyxdu, dZyydu;
-  complex wcres_Zxx, wcres_Zxy, wcres_Zyx, wcres_Zyy;
+  complex det;
+  complex qxx, qxy, qyx, qyy;
+  complex h1x, h1y, h2x, h2y;
+  complex a1x, a1y, a2x, a2y;
+  complex zxx, zxy, zyx, zyy;
   double fcost = 0.0;
   double det_abs;
 
@@ -325,63 +328,40 @@ static double compute_frequency_residual_and_sources(int ifreq)
     wyx2 = inv_emf->w_Zyx[ifreq][irec] * inv_emf->w_Zyx[ifreq][irec];
     wyy2 = inv_emf->w_Zyy[ifreq][irec] * inv_emf->w_Zyy[ifreq][irec];
 
-    wcres_Zxx = wxx2 * conj(inv_emf->res_Zxx[ifreq][irec]);
-    wcres_Zxy = wxy2 * conj(inv_emf->res_Zxy[ifreq][irec]);
-    wcres_Zyx = wyx2 * conj(inv_emf->res_Zyx[ifreq][irec]);
-    wcres_Zyy = wyy2 * conj(inv_emf->res_Zyy[ifreq][irec]);
+    qxx = wxx2 * conj(inv_emf->res_Zxx[ifreq][irec]);
+    qxy = wxy2 * conj(inv_emf->res_Zxy[ifreq][irec]);
+    qyx = wyx2 * conj(inv_emf->res_Zyx[ifreq][irec]);
+    qyy = wyy2 * conj(inv_emf->res_Zyy[ifreq][irec]);
     fcost += 0.5 * (
-        creal(wcres_Zxx * inv_emf->res_Zxx[ifreq][irec]) +
-        creal(wcres_Zxy * inv_emf->res_Zxy[ifreq][irec]) +
-        creal(wcres_Zyx * inv_emf->res_Zyx[ifreq][irec]) +
-        creal(wcres_Zyy * inv_emf->res_Zyy[ifreq][irec]));
+        creal(qxx * inv_emf->res_Zxx[ifreq][irec]) +
+        creal(qxy * inv_emf->res_Zxy[ifreq][irec]) +
+        creal(qyx * inv_emf->res_Zyx[ifreq][irec]) +
+        creal(qyy * inv_emf->res_Zyy[ifreq][irec]));
 
-    dZxxdu =  inv_emf->d_Hy[1][ifreq][irec] / det;
-    dZxydu = -inv_emf->d_Hx[1][ifreq][irec] / det;
-    dZyxdu = 0.0;
-    dZyydu = 0.0;
-    inv_emf->s_Ex[0][ifreq][irec] = -(wcres_Zxx * dZxxdu + wcres_Zxy * dZxydu + wcres_Zyx * dZyxdu + wcres_Zyy * dZyydu);
+    h1x = inv_emf->d_Hx[0][ifreq][irec];
+    h1y = inv_emf->d_Hy[0][ifreq][irec];
+    h2x = inv_emf->d_Hx[1][ifreq][irec];
+    h2y = inv_emf->d_Hy[1][ifreq][irec];
+    zxx = inv_emf->cal_Zxx[ifreq][irec];
+    zxy = inv_emf->cal_Zxy[ifreq][irec];
+    zyx = inv_emf->cal_Zyx[ifreq][irec];
+    zyy = inv_emf->cal_Zyy[ifreq][irec];
 
-    dZxxdu = 0.0;
-    dZxydu = 0.0;
-    dZyxdu =  inv_emf->d_Hy[1][ifreq][irec] / det;
-    dZyydu = -inv_emf->d_Hx[1][ifreq][irec] / det;
-    inv_emf->s_Ey[0][ifreq][irec] = -(wcres_Zxx * dZxxdu + wcres_Zxy * dZxydu + wcres_Zyx * dZyxdu + wcres_Zyy * dZyydu);
+    /* These arrays store conj(s^p) from the adjoint derivation:
+     * conj(s^p) = -sum_ij q_ij dZ_ij/du^p, q_ij = W_ij^2 conj(Delta Z_ij). */
+    a1x = qxx * h2y - qxy * h2x;
+    a1y = qyx * h2y - qyy * h2x;
+    inv_emf->s_Ex[0][ifreq][irec] = -a1x / det;
+    inv_emf->s_Ey[0][ifreq][irec] = -a1y / det;
+    inv_emf->s_Hx[0][ifreq][irec] = (zxx * a1x + zyx * a1y) / det;
+    inv_emf->s_Hy[0][ifreq][irec] = (zxy * a1x + zyy * a1y) / det;
 
-    dZxxdu = -inv_emf->cal_Zxx[ifreq][irec] * inv_emf->d_Hy[1][ifreq][irec] / det;
-    dZxydu =  inv_emf->cal_Zxx[ifreq][irec] * inv_emf->d_Hx[1][ifreq][irec] / det;
-    dZyxdu = -inv_emf->cal_Zyx[ifreq][irec] * inv_emf->d_Hy[1][ifreq][irec] / det;
-    dZyydu =  inv_emf->cal_Zyx[ifreq][irec] * inv_emf->d_Hx[1][ifreq][irec] / det;
-    inv_emf->s_Hx[0][ifreq][irec] = -(wcres_Zxx * dZxxdu + wcres_Zxy * dZxydu + wcres_Zyx * dZyxdu + wcres_Zyy * dZyydu);
-
-    dZxxdu = -inv_emf->cal_Zxy[ifreq][irec] * inv_emf->d_Hy[1][ifreq][irec] / det;
-    dZxydu =  inv_emf->cal_Zxy[ifreq][irec] * inv_emf->d_Hx[1][ifreq][irec] / det;
-    dZyxdu = -inv_emf->cal_Zyy[ifreq][irec] * inv_emf->d_Hy[1][ifreq][irec] / det;
-    dZyydu =  inv_emf->cal_Zyy[ifreq][irec] * inv_emf->d_Hx[1][ifreq][irec] / det;
-    inv_emf->s_Hy[0][ifreq][irec] = -(wcres_Zxx * dZxxdu + wcres_Zxy * dZxydu + wcres_Zyx * dZyxdu + wcres_Zyy * dZyydu);
-
-    dZxxdu = -inv_emf->d_Hy[0][ifreq][irec] / det;
-    dZxydu =  inv_emf->d_Hx[0][ifreq][irec] / det;
-    dZyxdu = 0.0;
-    dZyydu = 0.0;
-    inv_emf->s_Ex[1][ifreq][irec] = -(wcres_Zxx * dZxxdu + wcres_Zxy * dZxydu + wcres_Zyx * dZyxdu + wcres_Zyy * dZyydu);
-
-    dZxxdu = 0.0;
-    dZxydu = 0.0;
-    dZyxdu = -inv_emf->d_Hy[0][ifreq][irec] / det;
-    dZyydu =  inv_emf->d_Hx[0][ifreq][irec] / det;
-    inv_emf->s_Ey[1][ifreq][irec] = -(wcres_Zxx * dZxxdu + wcres_Zxy * dZxydu + wcres_Zyx * dZyxdu + wcres_Zyy * dZyydu);
-
-    dZxxdu =  inv_emf->cal_Zxx[ifreq][irec] * inv_emf->d_Hy[0][ifreq][irec] / det;
-    dZxydu = -inv_emf->cal_Zxx[ifreq][irec] * inv_emf->d_Hx[0][ifreq][irec] / det;
-    dZyxdu =  inv_emf->cal_Zyx[ifreq][irec] * inv_emf->d_Hy[0][ifreq][irec] / det;
-    dZyydu = -inv_emf->cal_Zyx[ifreq][irec] * inv_emf->d_Hx[0][ifreq][irec] / det;
-    inv_emf->s_Hx[1][ifreq][irec] = -(wcres_Zxx * dZxxdu + wcres_Zxy * dZxydu + wcres_Zyx * dZyxdu + wcres_Zyy * dZyydu);
-
-    dZxxdu =  inv_emf->cal_Zxy[ifreq][irec] * inv_emf->d_Hy[0][ifreq][irec] / det;
-    dZxydu = -inv_emf->cal_Zxy[ifreq][irec] * inv_emf->d_Hx[0][ifreq][irec] / det;
-    dZyxdu =  inv_emf->cal_Zyy[ifreq][irec] * inv_emf->d_Hy[0][ifreq][irec] / det;
-    dZyydu = -inv_emf->cal_Zyy[ifreq][irec] * inv_emf->d_Hx[0][ifreq][irec] / det;
-    inv_emf->s_Hy[1][ifreq][irec] = -(wcres_Zxx * dZxxdu + wcres_Zxy * dZxydu + wcres_Zyx * dZyxdu + wcres_Zyy * dZyydu);
+    a2x = qxx * h1y - qxy * h1x;
+    a2y = qyx * h1y - qyy * h1x;
+    inv_emf->s_Ex[1][ifreq][irec] = a2x / det;
+    inv_emf->s_Ey[1][ifreq][irec] = a2y / det;
+    inv_emf->s_Hx[1][ifreq][irec] = -(zxx * a2x + zyx * a2y) / det;
+    inv_emf->s_Hy[1][ifreq][irec] = -(zxy * a2x + zyy * a2y) / det;
   }
 
   return fcost;
@@ -410,9 +390,9 @@ static void apply_log_parameter_chain_rule(const float *x, float *g)
         rho_v = expf(-x[id + ncell]);
         vol = dx * dy * dz;
 
-        /* The discrete GMG operator stores conductivity multiplied by the model-cell
-         * volume. Convert the raw adjoint product from dJ/d(sigma*vol) to dJ/dsigma
-         * first, then apply the log-conductivity chain rule d sigma / d log(sigma)=sigma.
+        /* The field product gives the cellwise conductivity derivative without
+         * the physical integration weight. Apply the cell volume first, then the
+         * log-conductivity chain rule d sigma / d log(sigma) = sigma.
          */
         g[id] *= vol;
         g[id + ncell] *= vol;
@@ -623,13 +603,14 @@ float inversion_grad(const float *x, float *g)
     return (float)fcost;
   }
 
+  //the following computes forward data and adjoint source for each frequency
   {
     int command = INV_CMD_EVAL;
     int next_task = 0;
     int active_workers = 0;
     int worker;
-    float *g_local = alloc1float(2 * ncell);
-    float _Complex *forward_data = alloc1complexf(8 * inv_acq->nrec);
+    float *g_local = alloc1float(2 * ncell);//g=(g_sigmah, g_sigmav)
+    float _Complex *forward_data = alloc1complexf(8 * inv_acq->nrec);//(Ex,Ey,Hx,Hy) for XY and YX polarizations
     float _Complex *source_data = alloc1complexf(8 * inv_acq->nrec);
 
     zero_master_buffers();
@@ -666,7 +647,7 @@ float inversion_grad(const float *x, float *g)
       MPI_Recv(&grad_ifreq, 1, MPI_INT, worker, TAG_INV_GRAD_INDEX, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
       MPI_Recv(g_local, 2 * ncell, MPI_FLOAT, worker, TAG_INV_GRAD_DATA, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
       if(grad_ifreq != result_ifreq) err("worker %d returned mismatched gradient frequency %d for forward frequency %d", worker, grad_ifreq, result_ifreq);
-      for(ifreq = 0; ifreq < 2 * ncell; ++ifreq) g[ifreq] += g_local[ifreq];
+      for(ifreq = 0; ifreq < 2 * ncell; ++ifreq) g[ifreq] += g_local[ifreq];//accumulate local gradient for different frequencies
 
       if(inv_emf->verb) printf("rank 0 collected inversion freq=%g from worker %d\n", inv_emf->freqs[result_ifreq], worker);
 

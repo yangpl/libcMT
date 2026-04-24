@@ -67,6 +67,7 @@ static void solve_frequency(acq_t *acq, emf_t *emf, int ifreq, float _Complex *r
 {
   int i, irec, n, ipolar, lev;
   complex det, *u_bc;
+  double det_abs;
 
   if (emf->verb) printf("**** freq=%g\n", emf->freqs[ifreq]);
   extend_model_init(emf, ifreq);
@@ -104,6 +105,8 @@ static void solve_frequency(acq_t *acq, emf_t *emf, int ifreq, float _Complex *r
   /* Convert the sampled E/H fields into impedance tensor entries at each receiver. */
   for (irec = 0; irec < acq->nrec; ++irec) {
     det = emf->d_Hx[0][ifreq][irec] * emf->d_Hy[1][ifreq][irec] - emf->d_Hy[0][ifreq][irec] * emf->d_Hx[1][ifreq][irec];
+    det_abs = cabs(det);
+    if(det_abs < 1e-30) err("singular MT impedance denominator at ifreq=%d irec=%d", ifreq, irec);
     //convert E/H to impedance Z
     emf->cal_Zxx[ifreq][irec] = (emf->d_Ex[0][ifreq][irec] * emf->d_Hy[1][ifreq][irec] - emf->d_Ex[1][ifreq][irec] * emf->d_Hy[0][ifreq][irec]) / det;
     emf->cal_Zxy[ifreq][irec] = (emf->d_Ex[1][ifreq][irec] * emf->d_Hx[0][ifreq][irec] - emf->d_Ex[0][ifreq][irec] * emf->d_Hx[1][ifreq][irec]) / det;

@@ -217,7 +217,7 @@ void extract_mt_data(acq_t *acq, int ifreq, int ipolar, float _Complex ***E)
 	s += sigma111 * Ez[kp1][jp1][ip1] * w111;
 
 	sigma_loc = sigma000 * w000 + sigma001 * w001 + sigma010 * w010 + sigma011 * w011
-	          + sigma100 * w100 + sigma101 * w101 + sigma110 * w110 + sigma111 * w111;
+	  + sigma100 * w100 + sigma101 * w101 + sigma110 * w110 + sigma111 * w111;
 	if (fabs(sigma_loc) < DBL_EPSILON) err("sigma33 interpolation is zero while extracting Ez at [%d,%d,%d]", i1, i2, i3);
 
 	E[ipolar][ifreq][kk] = s / sigma_loc;//extract Jz then compute Ez=Jz/sigma
@@ -225,7 +225,6 @@ void extract_mt_data(acq_t *acq, int ifreq, int ipolar, float _Complex ***E)
       }
     }
   }
-
 
 }
 
@@ -239,8 +238,8 @@ void inject_adjoint_sources(acq_t *acq, int ifreq, int ipolar)
   double w1, w2, w3, vol;
   complex s;
   double *d1s, *d2s, *d3s;
-  double ***sigma11, ***sigma22, ***sigma33, ***invmur;
-  double sigma11_, sigma22_, sigma33_;
+  double ***invmur;
+  complex hxp, hxm, hyp, hym, hzp, hzm;
   complex ***Ex, ***Ey, ***Ez;
   complex ***Hx, ***Hy, ***Hz;
   
@@ -257,9 +256,6 @@ void inject_adjoint_sources(acq_t *acq, int ifreq, int ipolar)
   d1s = gmg[0].d1s;
   d2s = gmg[0].d2s;
   d3s = gmg[0].d3s;
-  sigma11 = gmg[0].sigma11;
-  sigma22 = gmg[0].sigma22;
-  sigma33 = gmg[0].sigma33;
   invmur = gmg[0].invmur;
   
   //finally inject source terms for E and H
@@ -274,7 +270,7 @@ void inject_adjoint_sources(acq_t *acq, int ifreq, int ipolar)
     w2 = (acq->rec_x2[irec] - gmg[0].x2[j]) / gmg[0].d2s[j];
     w3 = (acq->rec_x3[irec] - gmg[0].x3[k]) / gmg[0].d3s[k];
     vol = gmg[0].d1[ip1]*gmg[0].d2s[j]*gmg[0].d3s[k];
-    s = emf_->s_Ex[ipolar][ifreq][irec]/vol;//adjoint source for Ex
+    s = emf_->s_Ex[ipolar][ifreq][irec]/vol;//adjoint source density for Ex
     Ex[k][j][i] += s * (1. - w1) * (1. - w2) * (1. - w3);
     Ex[k][j][ip1] += s * w1 * (1. - w2) * (1. - w3);
     Ex[k][jp1][i] += s * (1. - w1) * w2 * (1. - w3);
@@ -293,8 +289,8 @@ void inject_adjoint_sources(acq_t *acq, int ifreq, int ipolar)
     w1 = (acq->rec_x1[irec] - gmg[0].x1[i]) / gmg[0].d1s[i];
     w2 = (acq->rec_x2[irec] - gmg[0].x2s[j]) / gmg[0].d2[jp1];
     w3 = (acq->rec_x3[irec] - gmg[0].x3[k]) / gmg[0].d3s[k];
-    vol = gmg[0].d1s[i]* gmg[0].d2[jp1]*gmg[0].d3s[k];
-    s = emf_->s_Ey[ipolar][ifreq][irec]/vol;//adjoint source for Ey
+    vol = gmg[0].d1s[i]*gmg[0].d2[jp1]*gmg[0].d3s[k];
+    s = emf_->s_Ey[ipolar][ifreq][irec]/vol;//adjoint source density for Ey
     Ey[k][j][i] += s * (1. - w1) * (1. - w2) * (1. - w3);
     Ey[k][j][ip1] += s * w1 * (1. - w2) * (1. - w3);
     Ey[k][jp1][i] += s * (1. - w1) * w2 * (1. - w3);
@@ -314,7 +310,7 @@ void inject_adjoint_sources(acq_t *acq, int ifreq, int ipolar)
     w2 = (acq->rec_x2[irec] - gmg[0].x2s[j]) / gmg[0].d2[jp1];
     w3 = (acq->rec_x3[irec] - gmg[0].x3s[k]) / gmg[0].d3[kp1];
     vol = gmg[0].d1s[i]*gmg[0].d2[jp1]*gmg[0].d3[kp1];
-    s = emf_->s_Hx[ipolar][ifreq][irec]/vol;//adjoint source for Hx
+    s = emf_->s_Hx[ipolar][ifreq][irec]/vol;//adjoint source density for Hx
     Hx[k][j][i] += s * (1. - w1) * (1. - w2) * (1. - w3);
     Hx[k][j][ip1] += s * w1 * (1. - w2) * (1. - w3);
     Hx[k][jp1][i] += s * (1. - w1) * w2 * (1. - w3);
@@ -334,7 +330,7 @@ void inject_adjoint_sources(acq_t *acq, int ifreq, int ipolar)
     w2 = (acq->rec_x2[irec] - gmg[0].x2[j]) / gmg[0].d2s[j];
     w3 = (acq->rec_x3[irec] - gmg[0].x3s[k]) / gmg[0].d3[kp1];
     vol = gmg[0].d1[ip1]*gmg[0].d2s[j]*gmg[0].d3[kp1];
-    s = emf_->s_Hy[ipolar][ifreq][irec]/vol;//adjoint source for Hy
+    s = emf_->s_Hy[ipolar][ifreq][irec]/vol;//adjoint source density for Hy
     Hy[k][j][i] += s * (1. - w1) * (1. - w2) * (1. - w3);
     Hy[k][j][ip1] += s * w1 * (1. - w2) * (1. - w3);
     Hy[k][jp1][i] += s * (1. - w1) * w2 * (1. - w3);
@@ -360,30 +356,30 @@ void inject_adjoint_sources(acq_t *acq, int ifreq, int ipolar)
 	im1 = MAX(i-1, 0);
 
 	if(j>0 && k>0){
-	  sigma11_ = 0.25*(sigma11[k][j][i] + sigma11[k][jm1][i] + sigma11[km1][j][i] + sigma11[km1][jm1][i]);
-	  Hz[k][j][i] *= 0.5*(invmur[k][j][i] + invmur[km1][j][i]);//Hz(I,J,k)
-	  Hz[k][jm1][i] *= 0.5*(invmur[k][jm1][i] + invmur[km1][jm1][i]);//Hz(I,J-1,k)
-	  Hy[k][j][i] *= 0.5*(invmur[k][j][i] + invmur[k][jm1][i]);//Hy(I,j,K)
-	  Hy[km1][j][i] *= 0.5*(invmur[km1][j][i] + invmur[km1][jm1][i]);//Hy(I,j,K-1)
-	  gmg[0].f[0][k][j][i] = ((Hz[k][j][i]/d2s[j]-Hz[k][jm1][i]/d2s[jm1]) - (Hy[k][j][i]/d3s[k]-Hy[km1][j][i]/d3s[km1])) - I_omega_mu0*sigma11_*Ex[k][j][i];
+	  vol = gmg[0].d1s[i]*gmg[0].d2[j]*gmg[0].d3[k];
+	  hzp = Hz[k][j][i] * 0.5*(invmur[k][j][i] + invmur[km1][j][i]);//Hz(I,J,k)
+	  hzm = Hz[k][jm1][i] * 0.5*(invmur[k][jm1][i] + invmur[km1][jm1][i]);//Hz(I,J-1,k)
+	  hyp = Hy[k][j][i] * 0.5*(invmur[k][j][i] + invmur[k][jm1][i]);//Hy(I,j,K)
+	  hym = Hy[km1][j][i] * 0.5*(invmur[km1][j][i] + invmur[km1][jm1][i]);//Hy(I,j,K-1)
+	  gmg[0].f[0][k][j][i] = ((hzp/d2s[j]-hzm/d2s[jm1]) - (hyp/d3s[k]-hym/d3s[km1])) + I_omega_mu0*Ex[k][j][i]*vol;
 	}
 
 	if(i>0 && k>0){
-	  sigma22_ = 0.25*(sigma22[k][j][i] + sigma22[k][j][im1] + sigma22[km1][j][i] + sigma22[km1][j][im1]);
-	  Hx[k][j][i] *= 0.5*(invmur[k][j][i] + invmur[k][j][im1]);//Hx(i,J,K)
-	  Hx[km1][j][i] *= 0.5*(invmur[km1][j][i] + invmur[km1][j][im1]);//Hx(i,J,K-1)
-	  Hz[k][j][i] *= 0.5*(invmur[k][j][i] + invmur[km1][j][i]);//Hz(I,J,k)
-	  Hz[k][j][im1] *= 0.5*(invmur[k][j][im1] + invmur[km1][j][im1]);//Hz(I-1,J,k)
-	  gmg[0].f[1][k][j][i] = ((Hx[k][j][i]/d3s[k]-Hx[km1][j][i]/d3s[km1]) - (Hz[k][j][i]/d1s[i]-Hz[k][j][im1]/d1s[im1])) - I_omega_mu0*sigma22_*Ey[k][j][i];
+	  vol = gmg[0].d1[i]*gmg[0].d2s[j]*gmg[0].d3[k];
+	  hxp = Hx[k][j][i] * 0.5*(invmur[k][j][i] + invmur[k][j][im1]);//Hx(i,J,K)
+	  hxm = Hx[km1][j][i] * 0.5*(invmur[km1][j][i] + invmur[km1][j][im1]);//Hx(i,J,K-1)
+	  hzp = Hz[k][j][i] * 0.5*(invmur[k][j][i] + invmur[km1][j][i]);//Hz(I,J,k)
+	  hzm = Hz[k][j][im1] * 0.5*(invmur[k][j][im1] + invmur[km1][j][im1]);//Hz(I-1,J,k)
+	  gmg[0].f[1][k][j][i] = ((hxp/d3s[k]-hxm/d3s[km1]) - (hzp/d1s[i]-hzm/d1s[im1])) + I_omega_mu0*Ey[k][j][i]*vol;
 	}
 
 	if(i>0 && j>0){
-	  sigma33_ = 0.25*(sigma33[k][j][i] + sigma33[k][j][im1] + sigma33[k][jm1][i] + sigma33[k][jm1][im1]);
-	  Hy[k][j][i] *= 0.5*(invmur[k][j][i] + invmur[k][jm1][i]);//Hy(I,j,K)
-	  Hy[k][j][im1] *= 0.5*(invmur[k][j][im1] + invmur[k][jm1][im1]);//Hy(I-1,j,K)
-	  Hx[k][j][i] *= 0.5*(invmur[k][j][i] + invmur[k][j][im1]);//Hx(i,J,K)
-	  Hx[k][jm1][i] *= 0.5*(invmur[k][jm1][i] + invmur[k][jm1][im1]);//Hx(i,J-1,K)
-	  gmg[0].f[2][k][j][i] = ((Hy[k][j][i]/d1s[i]-Hy[k][j][im1]/d1s[im1]) - (Hx[k][j][i]/d2s[j]-Hx[k][jm1][i]/d2s[jm1])) - I_omega_mu0*sigma33_*Ez[k][j][i];
+	  vol = gmg[0].d1[i]*gmg[0].d2[j]*gmg[0].d3s[k];
+	  hyp = Hy[k][j][i] * 0.5*(invmur[k][j][i] + invmur[k][jm1][i]);//Hy(I,j,K)
+	  hym = Hy[k][j][im1] * 0.5*(invmur[k][j][im1] + invmur[k][jm1][im1]);//Hy(I-1,j,K)
+	  hxp = Hx[k][j][i] * 0.5*(invmur[k][j][i] + invmur[k][j][im1]);//Hx(i,J,K)
+	  hxm = Hx[k][jm1][i] * 0.5*(invmur[k][jm1][i] + invmur[k][jm1][im1]);//Hx(i,J-1,K)
+	  gmg[0].f[2][k][j][i] = ((hyp/d1s[i]-hym/d1s[im1]) - (hxp/d2s[j]-hxm/d2s[jm1])) + I_omega_mu0*Ez[k][j][i]*vol;
 	}
       }
     }

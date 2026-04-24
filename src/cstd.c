@@ -938,7 +938,7 @@ static char *argstr;		/* storage for command line	*/
 /* functions declared and used internally */
 static int getparindex (int n, char *name);
 static void getparinit(void);
-static void tabulate (size_t argc, char **argv);
+static void tabulate (int argc, char **argv);
 static char *getpfname (void);
 static int ccount (char c, char *s);
 
@@ -1461,7 +1461,7 @@ static char *getpfname (void)
 #define iswhite(c)	((c) == ' ' || (c) == '\t' || (c) == '\n')
 
 /* Install symbol table */
-static void tabulate (size_t argc, char **argv)
+static void tabulate (int argc, char **argv)
 {
     int i;
     char *eqptr;

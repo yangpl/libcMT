@@ -13,7 +13,7 @@
  
 int find_index(int n, double *x, double val);
 int find_index_float(int n, float *x, double val);
-double create_nugrid(int n, double len, double dx, double *x, int istretch);
+double create_nugrid(int n, double len, double dx, double *x);
 
 static int get_padding_count(double target_dist, double dx0, int min_cells, double qmax)
 {
@@ -80,7 +80,7 @@ static void build_axis_with_padding(
 
   x[nleft] = src[0];
   pad = alloc1double(nleft + 1);
-  create_nugrid(nleft, left_dist, dx_left, pad, 1);
+  create_nugrid(nleft, left_dist, dx_left, pad);
   for(i=1; i<=nleft; i++){
     x[nleft-i] = src[0] - pad[i];
   }
@@ -88,7 +88,7 @@ static void build_axis_with_padding(
 
   x[nleft + nsrc] = src[nsrc];
   pad = alloc1double(nright + 1);
-  create_nugrid(nright, right_dist, dx_right, pad, 1);
+  create_nugrid(nright, right_dist, dx_right, pad);
   for(i=1; i<=nright; i++){
     x[nleft + nsrc + i] = src[nsrc] + pad[i];
   }
