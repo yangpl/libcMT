@@ -20,6 +20,7 @@ void inversion_worker_loop(acq_t *acq, emf_t *emf);
 void inversion_init_data_weights(acq_t *acq, emf_t *emf);
 float inversion_grad(const float *x, float *g);
 void write_inversion_model_hdf5(emf_t *emf, const float *x, int iter);
+void write_inversion_gradient_hdf5(emf_t *emf, const float *g, int iter);
 
 /* Configure the optimizer, map the starting model into log-conductivity space, and launch inversion. */
 /* Rank 0 owns optimizer setup and objective evaluations. When MPI is enabled, other ranks
@@ -55,12 +56,9 @@ int do_inversion(acq_t *acq, emf_t *emf)
   }
   if(!getparfloat("c1", &opt.c1)) opt.c1 = 1e-4f;
   if(!getparfloat("c2", &opt.c2)) opt.c2 = 0.9f;
-  /* The inversion objective is quite sensitive to the first trial step. Keep
-   * the default conservative so the stock launcher does not immediately drive
-   * the line search into failure from a rough starting model. */
-  if(!getparfloat("alpha", &opt.alpha0)) opt.alpha0 = 0.1f;
+  /* Initial trial step used by the line search unless alpha= is supplied. */
+  if(!getparfloat("alpha", &opt.alpha0)) opt.alpha0 = 1.f;
   opt.alpha = opt.alpha0;
-
   if(!getparstring("fdata", &fdata)) err("Need fdata=");
 
   ncell = emf->nx * emf->ny * emf->nz;
@@ -128,6 +126,11 @@ int do_inversion(acq_t *acq, emf_t *emf)
   opt.alpha = (opt.alpha0 > 0.0f) ? opt.alpha0 : 1.0f;
   opt.fk = opt.f0 = inversion_grad(opt.x, opt.g);
   opt.igrad = 1;
+  if(emf->mode == 2) {
+    write_inversion_gradient_hdf5(emf, opt.g, 0);
+    exit_status = EXIT_SUCCESS;
+    goto cleanup;
+  }
   opt.gk_norm = opt.g0_norm = l2norm(opt.n, opt.g);
 
   if(opt.verb) {
@@ -157,6 +160,7 @@ int do_inversion(acq_t *acq, emf_t *emf)
     }
 
     write_inversion_model_hdf5(emf, opt.x, opt.iter);
+    write_inversion_gradient_hdf5(emf, opt.g, opt.iter);
 
     if(opt.gk_norm <= opt.tol * MAX(1.0f, opt.g0_norm)) {
       opt.status = OPTIM_STATUS_CONVERGED;

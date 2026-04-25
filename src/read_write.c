@@ -266,3 +266,25 @@ void write_inversion_model_hdf5(emf_t *emf, const float *x, int iter)
   free1float(rho22);
   free1float(rho33);
 }
+
+void write_inversion_gradient_hdf5(emf_t *emf, const float *g, int iter)
+{
+  hid_t file_id;
+  char fname[PATH_MAX];
+  int ncell;
+
+  if(emf == NULL || g == NULL) err("invalid inversion gradient snapshot request");
+
+  ncell = emf->nx * emf->ny * emf->nz;
+  snprintf(fname, sizeof(fname), "gradient_iter%04d.h5", iter);
+  file_id = H5Fcreate(fname, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
+  if(file_id < 0) err("error opening inversion gradient HDF5 file for writing");
+
+  write_float_dataset_1d(file_id, "fx1", emf->nx + 1, emf->x1node);
+  write_float_dataset_1d(file_id, "fx2", emf->ny + 1, emf->x2node);
+  write_float_dataset_1d(file_id, "fx3", emf->nz + 1, emf->x3node);
+  write_float_dataset_3d(file_id, "grad_mh", emf->nz, emf->ny, emf->nx, g);
+  write_float_dataset_3d(file_id, "grad_mv", emf->nz, emf->ny, emf->nx, g + ncell);
+
+  check_hdf5_status(H5Fclose(file_id), "error closing inversion gradient HDF5 file");
+}

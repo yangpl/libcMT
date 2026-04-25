@@ -45,7 +45,7 @@ int main(int argc, char **argv)
   acq = malloc(sizeof(acq_t));
   emf = malloc(sizeof(emf_t));
   if(!getparint("verb", &emf->verb)) emf->verb = 1;/* 1 prints progress messages, 0 runs quietly. */
-  if(!getparint("mode", &emf->mode)) emf->mode = 0;/* 0 = modelling, 1 = inversion. */
+  if(!getparint("mode", &emf->mode)) emf->mode = 0;/* 0 = modelling, 1 = inversion, 2 = gradient only. */
   if(mpi_rank != 0) emf->verb = 0;
 
   if(emf->verb){
@@ -61,14 +61,17 @@ int main(int argc, char **argv)
     printf("=====================================================\n");
     if(emf->mode==0) printf("Task: MT modelling\n");
     if(emf->mode==1) printf("Task: MT inversion\n");
+    if(emf->mode==2) printf("Task: Output inversion gradient\n");
   }
 
   emf_init(emf);
   acq_init(acq, emf);
   if(emf->mode==0) {
     do_modelling(acq, emf);
-  } else if(emf->mode==1) {
+  } else if(emf->mode==1 || emf->mode==2) {
     status = do_inversion(acq, emf);
+  } else {
+    err("unknown mode=%d; expected 0 modelling, 1 inversion, or 2 gradient only", emf->mode);
   }
   acq_free(acq);
   emf_free(emf);
