@@ -144,6 +144,9 @@ void do_modelling(acq_t *acq, emf_t *emf)
 {
   int ifreq;
   int rank, size;
+  char *fdata;
+  
+  if(!getparstring("fdata", &fdata)) fdata="mt_data.h5";
 
   /* Parallelization is across frequency, using MPI ranks instead of threads.
    * Each rank runs an independent multigrid solve for one assigned frequency,
@@ -158,7 +161,7 @@ void do_modelling(acq_t *acq, emf_t *emf)
   if (size == 1) {
     allocate_modelling_buffers(acq, emf, 1);
     for (ifreq = 0; ifreq < emf->nfreq; ++ifreq) solve_frequency(acq, emf, ifreq, NULL);
-    write_mt_data(acq, emf, "mt_data.h5");
+    write_mt_data(acq, emf, fdata);
     free_modelling_buffers(emf);
     return;
   }
@@ -229,7 +232,7 @@ void do_modelling(acq_t *acq, emf_t *emf)
     }
 
     free1complexf(result);
-    write_mt_data(acq, emf, "mt_data.h5");
+    write_mt_data(acq, emf, fdata);
     free_modelling_buffers(emf);
     return;
   }
