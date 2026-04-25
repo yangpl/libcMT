@@ -187,7 +187,7 @@ void gauss_seidel(gmg_t *gmg, int lev, int iter)
 	t4 *= m4;
 	Ax =  ((t1/d2s[j]-t2/d2s[jm1]) - (t3/d3s[k]-t4/d3s[km1])) - I_omega_mu0*sigma11_*Ex[k][j][im1];
 	b[0] = bx[k][j][im1] - Ax;
-	A[0][0] = (m1/(d2s[j]*d2s[j]) + m2/(d2s[jm1]*d2s[jm1])) + (m3/(d3s[k]*d3s[k]) + m4/(d3s[km1]*d3s[km1])) - I_omega_mu0*sigma11_;//coeffient for Ex(I-1,j,k)
+	A[0][0] = (m1/(d2s[j]*d2s[j]) + m2/(d2s[jm1]*d2s[jm1])) + (m3/(d3s[k]*d3s[k]) + m4/(d3s[km1]*d3s[km1])) - I_omega_mu0*sigma11_;//coefficient for Ex(I-1,j,k)
 	A[0][1] = 0;//coefficient for Ex(I,j,k)
 	A[0][2] = -m2/(d1s[im1]*d2s[jm1]);//coefficient for Ey(i,J-1,k)
 	A[0][3] = m1/(d1s[im1]*d2s[j]);//coefficient for Ey(i,J,k)
@@ -209,7 +209,7 @@ void gauss_seidel(gmg_t *gmg, int lev, int iter)
 	t4 *= m4;
 	Ax = ((t1/d2s[j]-t2/d2s[jm1]) - (t3/d3s[k]-t4/d3s[km1])) - I_omega_mu0*sigma11_*Ex[k][j][i];
 	b[1] = bx[k][j][i] - Ax;
-	A[1][0] = 0;//coeffient for Ex(I-1,j,k)
+	A[1][0] = 0;//coefficient for Ex(I-1,j,k)
 	A[1][1] = (m1/(d2s[j]*d2s[j]) + m2/(d2s[jm1]*d2s[jm1])) + (m3/(d3s[k]*d3s[k]) + m4/(d3s[km1]*d3s[km1])) - I_omega_mu0*sigma11_;//coefficient for Ex(I,j,k)
 	A[1][2] = m2/(d1s[i]*d2s[jm1]);//coefficient for Ey(i,J-1,k)
 	A[1][3] = -m1/(d1s[i]*d2s[j]);//coefficient for Ey(i,J,k)
@@ -419,7 +419,7 @@ void line_gauss_seidel_x(gmg_t *gmg, int lev, int iter)
 	Ax =  ((t1/d2s[j]-t2/d2s[jm1]) - (t3/d3s[k]-t4/d3s[km1])) - I_omega_mu0*sigma11_*Ex[k][j][im1];
 	b[ii] = bx[k][j][im1] - Ax;
 	//jj = col_ind;
-	A[ii][5] = (m1/(d2s[j]*d2s[j]) + m2/(d2s[jm1]*d2s[jm1])) + (m3/(d3s[k]*d3s[k]) + m4/(d3s[km1]*d3s[km1])) - I_omega_mu0*sigma11_;//coeffient for Ex(I-1,j,k)
+	A[ii][5] = (m1/(d2s[j]*d2s[j]) + m2/(d2s[jm1]*d2s[jm1])) + (m3/(d3s[k]*d3s[k]) + m4/(d3s[km1]*d3s[km1])) - I_omega_mu0*sigma11_;//coefficient for Ex(I-1,j,k)
 	//jj = col_ind+1;
 	A[ii][6] = -m2/(d1s[im1]*d2s[jm1]);//coefficient for Ey(i,J-1,k)
 	//jj = col_ind+2;
@@ -598,7 +598,7 @@ void line_gauss_seidel_x(gmg_t *gmg, int lev, int iter)
 	m3 = 0.5*(invmur[k][j][i] + invmur[k][jm1][i]);//Hy(I,j,K)
 	m4 = 0.5*(invmur[km1][j][i] + invmur[km1][jm1][i]);//Hy(I,j,K-1)
 	//jj = col_ind;
-	A[ii][0] = 0;//coeffient for Ex(I-1,j,k)
+	A[ii][0] = 0;//coefficient for Ex(I-1,j,k)
 	//jj = col_ind+1;
 	A[ii][1] = m2/(d1s[i]*d2s[jm1]);//coefficient for Ey(i,J-1,k)
 	//jj = col_ind+2;
@@ -778,7 +778,7 @@ void line_gauss_seidel_y(gmg_t *gmg, int lev, int iter)
 	//jj = col_ind;
 	A[ii][4] = -m2/(d1s[im1]*d2s[jm1]);//coefficient for Ey(i,J-1,k)
 	//jj = col_ind+1;
-	A[ii][5] = (m1/(d2s[j]*d2s[j]) + m2/(d2s[jm1]*d2s[jm1])) + (m3/(d3s[k]*d3s[k]) + m4/(d3s[km1]*d3s[km1])) - I_omega_mu0*sigma11_;//coeffient for Ex(I-1,j,k)
+	A[ii][5] = (m1/(d2s[j]*d2s[j]) + m2/(d2s[jm1]*d2s[jm1])) + (m3/(d3s[k]*d3s[k]) + m4/(d3s[km1]*d3s[km1])) - I_omega_mu0*sigma11_;//coefficient for Ex(I-1,j,k)
 	//jj = col_ind+2;
 	A[ii][6] = 0;//coefficient for Ex(I,j,k)
 	//jj = col_ind+3;
@@ -816,7 +816,7 @@ void line_gauss_seidel_y(gmg_t *gmg, int lev, int iter)
 	//jj = col_ind;
 	A[ii][3] = m2/(d1s[i]*d2s[jm1]);//coefficient for Ey(i,J-1,k)
 	//jj = col_ind+1;
-	A[ii][4] = 0;//coeffient for Ex(I-1,j,k)
+	A[ii][4] = 0;//coefficient for Ex(I-1,j,k)
 	//jj = col_ind+2;
 	A[ii][5] = (m1/(d2s[j]*d2s[j]) + m2/(d2s[jm1]*d2s[jm1])) + (m3/(d3s[k]*d3s[k]) + m4/(d3s[km1]*d3s[km1])) - I_omega_mu0*sigma11_;//coefficient for Ex(I,j,k)
 	//jj = col_ind+3;
@@ -1089,7 +1089,7 @@ void line_gauss_seidel_z(gmg_t *gmg, int lev, int iter)
 	Ax =  ((t1/d2s[j]-t2/d2s[jm1]) - (t3/d3s[k]-t4/d3s[km1])) - I_omega_mu0*sigma11_*Ex[k][j][im1];
 	b[ii] = bx[k][j][im1] - Ax;
 	//jj = col_ind-4;
-	A[ii][0] = (k>1)?-m4/(d3s[km1]*d3s[km1]):0.;//coeffient for Ex(I-1,j,k-1)
+	A[ii][0] = (k>1)?-m4/(d3s[km1]*d3s[km1]):0.;//coefficient for Ex(I-1,j,k-1)
 	//jj = col_ind-3;
 	A[ii][1] = 0;
 	//jj = col_ind-2;
@@ -1099,7 +1099,7 @@ void line_gauss_seidel_z(gmg_t *gmg, int lev, int iter)
 	//jj = col_ind;
 	A[ii][4] = -m4/(d1s[im1]*d3s[km1]);//coefficient for Ez(i,j,K-1)
 	//jj = col_ind+1;
-	A[ii][5] = (m1/(d2s[j]*d2s[j]) + m2/(d2s[jm1]*d2s[jm1])) + (m3/(d3s[k]*d3s[k]) + m4/(d3s[km1]*d3s[km1])) - I_omega_mu0*sigma11_;//coeffient for Ex(I-1,j,k)
+	A[ii][5] = (m1/(d2s[j]*d2s[j]) + m2/(d2s[jm1]*d2s[jm1])) + (m3/(d3s[k]*d3s[k]) + m4/(d3s[km1]*d3s[km1])) - I_omega_mu0*sigma11_;//coefficient for Ex(I-1,j,k)
 	//jj = col_ind+2;
 	A[ii][6] = 0;//coefficient for Ex(I,j,k)
 	//jj = col_ind+3;
@@ -1109,7 +1109,7 @@ void line_gauss_seidel_z(gmg_t *gmg, int lev, int iter)
 	//jj = col_ind+5;
 	A[ii][9] = m3/(d1s[im1]*d3s[k]);//coefficient for Ez(i,j,K)
 	//jj = col_ind+6;
-	A[ii][10] = (k<n3-1)?-m3/(d3s[k]*d3s[k]):0;//coeffient for Ex(I-1,j,k+1)
+	A[ii][10] = (k<n3-1)?-m3/(d3s[k]*d3s[k]):0;//coefficient for Ex(I-1,j,k+1)
 
 	//Ex(I,j,k)
 	ii = row_ind+2;
@@ -1129,7 +1129,7 @@ void line_gauss_seidel_z(gmg_t *gmg, int lev, int iter)
 	Ax = ((t1/d2s[j]-t2/d2s[jm1]) - (t3/d3s[k]-t4/d3s[km1])) - I_omega_mu0*sigma11_*Ex[k][j][i];
 	b[ii] = bx[k][j][i] - Ax;
 	//jj = col_ind-3;
-	A[ii][0] = (k>1)?-m4/(d3s[km1]*d3s[km1]):0;//coeffient for Ex(I,j,k-1)
+	A[ii][0] = (k>1)?-m4/(d3s[km1]*d3s[km1]):0;//coefficient for Ex(I,j,k-1)
 	//jj = col_ind-2;
 	A[ii][1] = 0;
 	//jj = col_ind-1;
@@ -1137,7 +1137,7 @@ void line_gauss_seidel_z(gmg_t *gmg, int lev, int iter)
 	//jj = col_ind;
 	A[ii][3] = m4/(d1s[i]*d3s[km1]);//coefficient for Ez(i,j,K-1)
 	//jj = col_ind+1;
-	A[ii][4] = 0;//coeffient for Ex(I-1,j,k)
+	A[ii][4] = 0;//coefficient for Ex(I-1,j,k)
 	//jj = col_ind+2;
 	A[ii][5] = (m1/(d2s[j]*d2s[j]) + m2/(d2s[jm1]*d2s[jm1])) + (m3/(d3s[k]*d3s[k]) + m4/(d3s[km1]*d3s[km1])) - I_omega_mu0*sigma11_;//coefficient for Ex(I,j,k)
 	//jj = col_ind+3;
@@ -1149,7 +1149,7 @@ void line_gauss_seidel_z(gmg_t *gmg, int lev, int iter)
 	//jj = col_ind+6;
 	A[ii][9] = 0;
 	//jj = col_ind+7;
-	A[ii][10] = (k<n3-1)?-m3/(d3s[k]*d3s[k]):0.;//coeffient for Ex(I,j,k+1)
+	A[ii][10] = (k<n3-1)?-m3/(d3s[k]*d3s[k]):0.;//coefficient for Ex(I,j,k+1)
 
 	//Ey(i,J-1,k)
 	ii = row_ind+3;
@@ -1169,7 +1169,7 @@ void line_gauss_seidel_z(gmg_t *gmg, int lev, int iter)
 	Ax = ((t1/d3s[k]-t2/d3s[km1]) - (t3/d1s[i]-t4/d1s[im1])) - I_omega_mu0*sigma22_*Ey[k][jm1][i];
 	b[ii] = by[k][jm1][i] - Ax;
 	//jj = col_ind-2;
-	A[ii][0] = (k>1)?-m2/(d3s[km1]*d3s[km1]):0;//coeffient for Ey(i,J-1,k-1)
+	A[ii][0] = (k>1)?-m2/(d3s[km1]*d3s[km1]):0;//coefficient for Ey(i,J-1,k-1)
 	//jj = col_ind-1;
 	A[ii][1] = 0;
 	//jj = col_ind;
@@ -1189,7 +1189,7 @@ void line_gauss_seidel_z(gmg_t *gmg, int lev, int iter)
 	//jj = col_ind+7;
 	A[ii][9] = 0;
 	//jj = col_ind+8;
-	A[ii][10] = (k<n3-1)?-m1/(d3s[k]*d3s[k]):0;//coeffient for Ey(i,J-1,k+1)
+	A[ii][10] = (k<n3-1)?-m1/(d3s[k]*d3s[k]):0;//coefficient for Ey(i,J-1,k+1)
 	
 	//Ey(i,J,k)
 	ii = row_ind+4;
@@ -1209,7 +1209,7 @@ void line_gauss_seidel_z(gmg_t *gmg, int lev, int iter)
 	Ax = ((t1/d3s[k]-t2/d3s[km1]) - (t3/d1s[i]-t4/d1s[im1])) - I_omega_mu0*sigma22_*Ey[k][j][i];
 	b[ii] = by[k][j][i] - Ax;
 	//jj = col_ind-1;
-	A[ii][0] = (k>1)?-m2/(d3s[km1]*d3s[km1]):0;//coeffient for Ey(i,J,k-1)
+	A[ii][0] = (k>1)?-m2/(d3s[km1]*d3s[km1]):0;//coefficient for Ey(i,J,k-1)
 	//jj = col_ind;
 	A[ii][1] = m2/(d2s[j]*d3s[km1]);//coefficient for Ez(i,j,K-1)
 	//jj = col_ind+1;
@@ -1229,7 +1229,7 @@ void line_gauss_seidel_z(gmg_t *gmg, int lev, int iter)
 	//jj = col_ind+8;
 	A[ii][9] = 0;
 	//jj = col_ind+9;
-	A[ii][10] = (k<n3-1)?-m1/(d3s[k]*d3s[k]):0;//coeffient for Ey(i,J,k+1)
+	A[ii][10] = (k<n3-1)?-m1/(d3s[k]*d3s[k]):0;//coefficient for Ey(i,J,k+1)
 
 	//Ez(i,j,K)
 	ii = row_ind+5;
@@ -1575,10 +1575,10 @@ void v_cycle(gmg_t *gmg, int lev)
 {
   int n, i;
 
-  for(i=0; i<v1; i++) smoothing(gmg, lev, i);//pre-smoothing of u based on u,f at lev-th level
+  for(i=0; i<v1; i++) smoothing(gmg, lev, i);/* Pre-smooth the current level solution. */
   if(lev<lmax-1 && gmg[lev+1].sc[0]*gmg[lev+1].sc[1]*gmg[lev+1].sc[2]>1){
-    residual(gmg, lev);//residual r=f-Au at lev-th lev
-    if(cycleopt==1 && lev==0){//compute the norm of the residual
+    residual(gmg, lev);/* r = f - A u on this level. */
+    if(cycleopt==1 && lev==0){/* Track convergence only at the finest grid. */
       n = 3*(gmg[lev].n1+1)*(gmg[lev].n2+1)*(gmg[lev].n3+1);
       rnorm = sqrt(creal(inner_product(n, &gmg[lev].r[0][0][0][0], &gmg[lev].r[0][0][0][0])));
       if(verb) printf("icycle=%d rnorm=%e\n", icycle, rnorm);
@@ -1586,17 +1586,16 @@ void v_cycle(gmg_t *gmg, int lev)
       if(icycle==0) rnorm0 = rnorm;
       else if(rnorm<rnorm0*tol) { icycle=ncycle; return; }
     }
-    restriction(gmg, lev);//restrict gmg[lev].r to gmg[lev+1].f 
+    restriction(gmg, lev);/* Move the residual to the coarse-grid RHS. */
 
     n = 3*(gmg[lev+1].n1+1)*(gmg[lev+1].n2+1)*(gmg[lev+1].n3+1);
     memset(&gmg[lev+1].u[0][0][0][0], 0, n*sizeof(complex));
-    v_cycle(gmg, lev+1);// another v-cycle at (lev+1)-th level
+    v_cycle(gmg, lev+1);/* Recursively solve the coarse-grid correction. */
 
-    prolongation(gmg, lev);//interpolate r^h=gmg[lev+1].u to r^2h from (lev+1) to lev-th level
+    prolongation(gmg, lev);/* Prolong and add the coarse-grid correction. */
   }
-  //if lev==lmax-1, then nx=ny=2, grid size=3*3, only 1 point at the center is unknwn
-  //direct solve (equivalent to smoothing at center point) by one post-smoothing will do the job  
-  for(i=0; i<v2; i++) smoothing(gmg, lev, i);//post-smoothing
+  /* On the coarsest grid, post-smoothing acts as the direct center-point solve. */
+  for(i=0; i<v2; i++) smoothing(gmg, lev, i);/* Post-smooth after correction. */
 }
 
 /*< multigrid F-cycle >*/
@@ -1604,12 +1603,12 @@ void f_cycle(gmg_t *gmg, int lev)
 {
   int n;
 
-  if(lev==lmax-1){//coarsest grid, direct solve or smoothing
+  if(lev==lmax-1){/* Reset the coarsest-grid correction before smoothing. */
     n = 3*(gmg[lev].n1+1)*(gmg[lev].n2+1)*(gmg[lev].n3+1);	
     memset(&gmg[lev].u[0][0][0][0], 0, n*sizeof(complex));
   }else if(gmg[lev+1].sc[0]*gmg[lev+1].sc[1]*gmg[lev+1].sc[2]>1){
-    residual(gmg, lev);//residual r=f-Au at lev-th level
-    if(cycleopt==2 && lev==0){//compute the norm of the residual vector at 1st iteration
+    residual(gmg, lev);/* r = f - A u on this level. */
+    if(cycleopt==2 && lev==0){/* Track convergence only at the finest grid. */
       n = 3*(gmg[lev].n1+1)*(gmg[lev].n2+1)*(gmg[lev].n3+1);
       rnorm = sqrt(creal(inner_product(n, &gmg[lev].r[0][0][0][0], &gmg[lev].r[0][0][0][0])));
       if(verb) printf("icycle=%d rnorm=%e\n", icycle, rnorm);
@@ -1617,18 +1616,18 @@ void f_cycle(gmg_t *gmg, int lev)
       if(icycle==0) rnorm0 = rnorm;
       else if(rnorm<rnorm0*tol) { icycle=ncycle; return; }
     }
-    restriction(gmg, lev);//restrict r at lev-th lev to f at (lev+1)-th level
+    restriction(gmg, lev);/* Move the residual to the coarse-grid RHS. */
 
     n = 3*(gmg[lev+1].n1+1)*(gmg[lev+1].n2+1)*(gmg[lev+1].n3+1);
     memset(&gmg[lev+1].u[0][0][0][0], 0, n*sizeof(complex));
     f_cycle(gmg, lev+1);
-    prolongation(gmg, lev);//interpolate r^h=gmg[lev+1].u to r^2h from (lev+1) to lev-th level
+    prolongation(gmg, lev);/* Prolong and add the coarse-grid correction. */
   }
-  v_cycle(gmg, lev);// another v-cycle at lev-th level  
+  v_cycle(gmg, lev);/* Finish the F-cycle with a V-cycle from this level. */
 }
 
 
-/*< use x1[] to derive x1s[], d1[], d1s[] >*/
+/* Derive cell centers and staggered spacings from node coordinates. */
 void generate_xs_dx(int n1, double *x1, double *x1s, double *d1, double *d1s)
 {
   int i;
@@ -1644,7 +1643,7 @@ void generate_xs_dx(int n1, double *x1, double *x1s, double *d1, double *d1s)
   d1[0] = x1s[0] - x1[0];
 }
 
-//get the total depth of multigrid 
+/* Return the number of coarsening levels supported by an axis length. */
 int get_depth(int n)
 {
   int lmax, nn;
@@ -1665,7 +1664,7 @@ void mt1d_free(void);
 void mt1d_solve_ani(double freq, double *sxx, double *syy, double *sxy,
 		    complex eTopX, complex eTopY, complex *Ex, complex *Ey);
 
-/*< setup the grid and the conductivity at different multigrid level >*/
+/* Allocate one multigrid level and populate geometry and volume-scaled material terms. */
 void grid_init(gmg_t *gmg, int lev)
 {
   int i, j, k;
@@ -1675,16 +1674,16 @@ void grid_init(gmg_t *gmg, int lev)
   double vol, val;
 
   if(lev==0){
-    gmg[lev].sc[0] = 1;//coarsening factor x
-    gmg[lev].sc[1] = 1;//coarsening factor y
-    gmg[lev].sc[2] = 1;//coarsening factor z
+    gmg[lev].sc[0] = 1;/* No coarsening on the finest level. */
+    gmg[lev].sc[1] = 1;
+    gmg[lev].sc[2] = 1;
     n1 = emf_->n1;
     n2 = emf_->n2;
     n3 = emf_->n3;
   }else{ 
-    gmg[lev].sc[0] = (gmg[lev-1].n1%2==0&&gmg[lev-1].n1>2)?2:1;//coarsening factor x
-    gmg[lev].sc[1] = (gmg[lev-1].n2%2==0&&gmg[lev-1].n2>2)?2:1;//coarsening factor y
-    gmg[lev].sc[2] = (gmg[lev-1].n3%2==0&&gmg[lev-1].n3>2)?2:1;//coarsening factor z
+    gmg[lev].sc[0] = (gmg[lev-1].n1%2==0&&gmg[lev-1].n1>2)?2:1;/* Coarsen x only when the axis can still halve cleanly. */
+    gmg[lev].sc[1] = (gmg[lev-1].n2%2==0&&gmg[lev-1].n2>2)?2:1;/* Coarsen y only when the axis can still halve cleanly. */
+    gmg[lev].sc[2] = (gmg[lev-1].n3%2==0&&gmg[lev-1].n3>2)?2:1;/* Coarsen z only when the axis can still halve cleanly. */
     if(isemicoarsen) gmg[lev].sc[icycle%3] = 1;  
     n1 = gmg[lev-1].n1/gmg[lev].sc[0];
     n2 = gmg[lev-1].n2/gmg[lev].sc[1];
@@ -1732,7 +1731,7 @@ void grid_init(gmg_t *gmg, int lev)
 	}
       }
     }
-  }else{//restrict model from fine grid to coarse grid
+  }else{/* Restrict volume-scaled material terms from the finer level. */
     repeat = 8/(gmg[lev].sc[0]*gmg[lev].sc[1]*gmg[lev].sc[2]);
     for(k=0; k<n3; k++){
       kk = (gmg[lev].sc[2]==2)?2*k:k;
@@ -1787,7 +1786,7 @@ void grid_init(gmg_t *gmg, int lev)
       }
     }
       
-  }//end if
+  }
 
 }
 
@@ -1823,12 +1822,12 @@ void gmg_init(emf_t *emf, int ifreq)
   if(emf->verb) printf("----------- gmg_init ---------------\n");
   emf_ = emf;
   I_omega_mu0 = I*emf->omegas[ifreq]*mu0;//Fourier convention: \partial_t->-I*omega
-  verb = emf->verb; //verbosity display, 1=verbose, 0=not 
+  verb = emf->verb; /* 1 prints progress messages, 0 runs quietly. */
   if(!getparint("cycleopt", &cycleopt)) cycleopt = 2;/* 1=V cycle; 2=F cycle; 3=W cycle */
   if(!getparint("ncycle", &ncycle)) ncycle = 100;/* number of multigrid cycles */  
   if(!getparint("v1", &v1)) v1 = 1;/* number of pre-smoothing */
   if(!getparint("v2", &v2)) v2 = 1;/* number of post-smoothing */
-  if(!getpardouble("tol", &tol)) tol = 1e-6;/* stopping criteria */
+  if(!getpardouble("tol", &tol)) tol = 1e-6;/* Relative residual stopping tolerance. */
   if(!getparint("isemicoarsen", &isemicoarsen)) isemicoarsen = 1;/*1=semi-coarsening; 0=no semi-coarsening */
   if(!getparint("lmax", &lmax)) {
     lmax1 = get_depth(emf->n1);

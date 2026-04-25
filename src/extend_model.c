@@ -35,7 +35,7 @@ int find_good_size(int n)
   int m, p, nn;
 
   m = 1;
-  while(m<n) m *= 2;//m>=n
+  while(m<n) m *= 2;/* First candidate is the next power of two. */
 
   nn = m;  
   /* p = 7*m/8; */
@@ -68,8 +68,8 @@ static void build_axis_with_padding(
   nleft = get_padding_count(left_dist, dx_left, min_pad, qmax);
   nright = get_padding_count(right_dist, dx_right, min_pad, qmax);
   ntotal = nsrc + nleft + nright;
-  /* round the final cell count up to the next power of two using only shell cells */
-  nextra = find_good_size(ntotal) - ntotal; //next_power_of_two(ntotal) - ntotal;
+  /* Add shell cells until the total size is friendly to the multigrid hierarchy. */
+  nextra = find_good_size(ntotal) - ntotal;
   nleft += nextra/2;
   nright += nextra - nextra/2;
   
@@ -115,7 +115,7 @@ static void set_source_cell(emf_t *emf, int i1, int i2, int i3, int ix, int iy, 
   emf->invmur[i3][i2][i1] = 1.0;
 }
 
-/*< extend model grid >*/
+/* Build the padded computational grid and map the input resistivity model onto it. */
 void extend_model_init(emf_t *emf, int ifreq)
 {
   int i1, i2, i3;
@@ -130,11 +130,11 @@ void extend_model_init(emf_t *emf, int ifreq)
   if(!getpardouble("rho_skin", &rho_skin)) rho_skin = emf->rhomax_noair;
 
   skin_depth = sqrt(2.0 * rho_skin / (2.*PI*emf->freqs[ifreq] * mu0));
-  lextend = MIN(200e3,MAX(50e3, 4*skin_depth));//lextend in [50km, 200km]
+  lextend = MIN(200e3,MAX(50e3, 4*skin_depth));/* Keep padding between 50 km and 200 km. */
 
-  build_axis_with_padding(emf->nx, emf->x1node, lextend, lextend, nb, 1.3, &emf->n1, &emf->x1);//growth rate<1.5
-  build_axis_with_padding(emf->ny, emf->x2node, lextend, lextend, nb, 1.3, &emf->n2, &emf->x2);//growth rate<1.5
-  build_axis_with_padding(emf->nz, emf->x3node, lextend, lextend, nb, 2.0, &emf->n3, &emf->x3);//growth rate<2.0
+  build_axis_with_padding(emf->nx, emf->x1node, lextend, lextend, nb, 1.3, &emf->n1, &emf->x1);/* Horizontal padding grows gently. */
+  build_axis_with_padding(emf->ny, emf->x2node, lextend, lextend, nb, 1.3, &emf->n2, &emf->x2);/* Horizontal padding grows gently. */
+  build_axis_with_padding(emf->nz, emf->x3node, lextend, lextend, nb, 2.0, &emf->n3, &emf->x3);/* Vertical padding may grow faster. */
 
   emf->sigma11 = alloc3double(emf->n1, emf->n2, emf->n3);
   emf->sigma22 = alloc3double(emf->n1, emf->n2, emf->n3);
@@ -149,7 +149,7 @@ void extend_model_init(emf_t *emf, int ifreq)
       for(i1=0; i1<emf->n1; i1++){
         x1c = 0.5*(emf->x1[i1] + emf->x1[i1+1]);
 
-        if(x3c < emf->x3node[0]){//always fill in the grids above the input model with air
+        if(x3c < emf->x3node[0]){/* Cells above the input model are always air. */
           set_air_cell(emf, i1, i2, i3, rho_air);
           continue;
         }

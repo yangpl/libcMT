@@ -24,7 +24,7 @@
 - `src/extract_inject.c`: receiver extraction and adjoint-source injection.
 - `src/emf_init_free.c`: reads frequencies and the resistivity model from HDF5.
 - `src/acq_init_free.c`: reads receiver geometry from HDF5.
-- `src/read_write_data.c`: reads observed MT data and writes modelled MT responses.
+- `src/read_write.c`: reads observed MT data and writes modelled MT responses.
 - `src/optim.c`: nonlinear optimization routines used by inversion.
 - `src/cstd.c`: allocation helpers, parser utilities, and shared support code.
 
@@ -37,7 +37,7 @@ cd src
 make
 ```
 
-This produces [`bin/libcMT`](/home/pyang/Desktop/libcMT/bin/libcMT).
+This produces `../bin/libcMT`.
 
 Clean the build with:
 
@@ -49,7 +49,7 @@ make clean
 Notes:
 
 - The Makefile uses `mpicc`.
-- HDF5 include/library paths are currently hard-coded in [`src/Makefile`](/home/pyang/Desktop/libcMT/src/Makefile).
+- HDF5 include/library paths are currently set in `src/Makefile`.
 
 ## Runtime Interface
 
@@ -110,16 +110,16 @@ In inversion mode, the optimizer also writes `iterate.txt`.
 
 ## Example Workflow
 
-The current runnable example lives in [`run_modelling/`](/home/pyang/Desktop/libcMT/run_modelling).
+The current runnable example lives in `run_modelling/`.
 
 Files there:
 
-- [`run_modelling/run.sh`](/home/pyang/Desktop/libcMT/run_modelling/run.sh): regenerates inputs and runs a forward model.
-- [`run_modelling/make_model_3d.py`](/home/pyang/Desktop/libcMT/run_modelling/make_model_3d.py): creates `model.h5`.
-- [`run_modelling/make_acquisition.py`](/home/pyang/Desktop/libcMT/run_modelling/make_acquisition.py): creates `receivers.h5` and `receivers_layout.png`.
-- [`run_modelling/make_freqs.py`](/home/pyang/Desktop/libcMT/run_modelling/make_freqs.py): creates `freqs.h5`.
-- [`run_modelling/plot_mt_results.py`](/home/pyang/Desktop/libcMT/run_modelling/plot_mt_results.py): plots apparent resistivity/phase from `mt_data.h5`.
-- [`run_modelling/plot_model_3d.py`](/home/pyang/Desktop/libcMT/run_modelling/plot_model_3d.py): visualizes the model.
+- `run_modelling/run.sh`: regenerates inputs and runs a forward model.
+- `run_modelling/make_model_3d.py`: creates `model.h5`.
+- `run_modelling/make_acquisition.py`: creates `receivers.h5` and `receivers_layout.png`.
+- `run_modelling/make_freqs.py`: creates `freqs.h5`.
+- `run_modelling/plot_mt_results.py`: plots apparent resistivity/phase from `mt_data.h5`.
+- `run_modelling/plot_model_3d.py`: visualizes the model.
 
 Typical run:
 
@@ -160,9 +160,9 @@ Manual inversion example:
 - In inversion mode, rank 0 owns the optimizer and workers handle per-frequency forward/adjoint solves.
 - The current inversion parameterization is VTI in log-conductivity: one horizontal parameter for `sigma11 = sigma22`, and one vertical parameter for `sigma33`.
 - The code treats cells with resistivity greater than or equal to `rho_air` as air when applying inversion bounds and building the extended model.
-- The active frequency-file argument name in the code is `ffreqs`, and the expected dataset name is `freqs`.
+- Frequencies can be supplied directly with `freqs=...` or through `ffreqs=...`; HDF5 frequency files must contain dataset `freqs`.
 
 ## Notes On Included Test Directories
 
-- [`test_mt1d/`](/home/pyang/Desktop/libcMT/test_mt1d) contains standalone 1D MT derivations, small drivers, and plotting helpers.
-- [`test_parallelization/`](/home/pyang/Desktop/libcMT/test_parallelization) contains a minimal MPI master/worker example, not the main solver.
+- `test_mt1d/` contains standalone 1D MT derivations, small drivers, and plotting helpers.
+- `test_parallelization/` contains a minimal MPI master/worker example, not the main solver.

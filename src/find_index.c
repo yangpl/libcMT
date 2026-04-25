@@ -9,7 +9,7 @@
  */
 int find_index(int n, double *x, double val)
 {
-  /*assume x[] has been sorted ascendingly */
+  /* x[] must be sorted in ascending order. */
   /* int i; */
   
   /* for(i=0; i<n; i++){ */

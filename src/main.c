@@ -44,8 +44,8 @@ int main(int argc, char **argv)
 
   acq = malloc(sizeof(acq_t));
   emf = malloc(sizeof(emf_t));
-  if(!getparint("verb", &emf->verb)) emf->verb = 1;//1=verbose display, 0=not
-  if(!getparint("mode", &emf->mode)) emf->mode = 0;// 0/1=modelling/inversion
+  if(!getparint("verb", &emf->verb)) emf->verb = 1;/* 1 prints progress messages, 0 runs quietly. */
+  if(!getparint("mode", &emf->mode)) emf->mode = 0;/* 0 = modelling, 1 = inversion. */
   if(mpi_rank != 0) emf->verb = 0;
 
   if(emf->verb){

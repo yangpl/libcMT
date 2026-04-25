@@ -131,7 +131,8 @@ static void zero_master_buffers(void)
   memset(&inv_emf->s_Hy[0][0][0], 0, 2 * inv_acq->nrec * inv_emf->nfreq * sizeof(float _Complex));
 }
 
-//pack forward data from field vectors into buffer
+/* Pack receiver fields for both source polarizations into one MPI buffer:
+ * Ex(0), Ex(1), Ey(0), Ey(1), Hx(0), Hx(1), Hy(0), Hy(1). */
 static void pack_forward_data(int ifreq, float _Complex *buffer)
 {
   int irec;
@@ -147,7 +148,7 @@ static void pack_forward_data(int ifreq, float _Complex *buffer)
   }
 }
 
-//unpack forward data from butter into field vectors
+/* Unpack the MPI forward-field buffer back into the receiver-field arrays. */
 static void unpack_forward_data(int ifreq, const float _Complex *buffer)
 {
   int irec;
@@ -163,7 +164,8 @@ static void unpack_forward_data(int ifreq, const float _Complex *buffer)
   }
 }
 
-//pack adjoint sources from source vectors into buffer
+/* Pack adjoint receiver sources for both polarizations using the same field order
+ * as pack_forward_data(). */
 static void pack_adjoint_sources(int ifreq, float _Complex *buffer)
 {
   int irec;
@@ -179,7 +181,7 @@ static void pack_adjoint_sources(int ifreq, float _Complex *buffer)
   }
 }
 
-//unpack adjoint sources from butter to source vectors
+/* Unpack adjoint receiver sources received from rank 0. */
 static void unpack_adjoint_sources(int ifreq, const float _Complex *buffer)
 {
   int irec;
@@ -523,8 +525,8 @@ void inversion_worker_loop(acq_t *acq, emf_t *emf)
   int ncell = emf->nx * emf->ny * emf->nz;
   float *x = alloc1float(2 * ncell);
   float *g_local = alloc1float(2 * ncell);
-  float _Complex *forward_data = alloc1complexf(8 * acq->nrec);//Ex1,Ex2,Ey1,Ey2,Hx1,Hx2,Hy1,Hy2
-  float _Complex *source_data = alloc1complexf(8 * acq->nrec);//sEx1,sEx2,sEy1,sEy2,sHx1,sHx2,sHy1,sHy2
+  float _Complex *forward_data = alloc1complexf(8 * acq->nrec);/* Receiver fields for two polarizations. */
+  float _Complex *source_data = alloc1complexf(8 * acq->nrec);/* Adjoint receiver sources for two polarizations. */
 
   inv_acq = acq;
   inv_emf = emf;
@@ -603,14 +605,15 @@ float inversion_grad(const float *x, float *g)
     return (float)fcost;
   }
 
-  //the following computes forward data and adjoint source for each frequency
+  /* Compute forward responses, build adjoint sources, and accumulate one gradient
+   * contribution per frequency. */
   {
     int command = INV_CMD_EVAL;
     int next_task = 0;
     int active_workers = 0;
     int worker;
-    float *g_local = alloc1float(2 * ncell);//g=(g_sigmah, g_sigmav)
-    float _Complex *forward_data = alloc1complexf(8 * inv_acq->nrec);//(Ex,Ey,Hx,Hy) for XY and YX polarizations
+    float *g_local = alloc1float(2 * ncell);/* Horizontal and vertical log-conductivity gradients. */
+    float _Complex *forward_data = alloc1complexf(8 * inv_acq->nrec);/* Receiver fields for both polarizations. */
     float _Complex *source_data = alloc1complexf(8 * inv_acq->nrec);
 
     zero_master_buffers();
@@ -647,7 +650,7 @@ float inversion_grad(const float *x, float *g)
       MPI_Recv(&grad_ifreq, 1, MPI_INT, worker, TAG_INV_GRAD_INDEX, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
       MPI_Recv(g_local, 2 * ncell, MPI_FLOAT, worker, TAG_INV_GRAD_DATA, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
       if(grad_ifreq != result_ifreq) err("worker %d returned mismatched gradient frequency %d for forward frequency %d", worker, grad_ifreq, result_ifreq);
-      for(ifreq = 0; ifreq < 2 * ncell; ++ifreq) g[ifreq] += g_local[ifreq];//accumulate local gradient for different frequencies
+      for(ifreq = 0; ifreq < 2 * ncell; ++ifreq) g[ifreq] += g_local[ifreq];/* Sum this frequency's gradient into the objective gradient. */
 
       if(inv_emf->verb) printf("rank 0 collected inversion freq=%g from worker %d\n", inv_emf->freqs[result_ifreq], worker);
 

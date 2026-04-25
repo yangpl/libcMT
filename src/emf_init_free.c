@@ -91,10 +91,10 @@ void emf_init(emf_t *emf)
   hid_t file_id;
 
   if(emf->verb) printf("----------- emf_init -------\n");
-  if(!getparfloat("tol", &emf->tol)) emf->tol = 1e-7;/* stopping criteria */
+  if(!getparfloat("tol", &emf->tol)) emf->tol = 1e-7;/* Relative solver stopping tolerance. */
 
   /* Frequencies can come either from a command-line freqs= list or from an HDF5
-   * file/dataset pair using ffreq= and optional dfreq=. */
+   * file supplied by ffreqs= with dataset "freqs". */
   read_frequencies(emf);
   emf->omegas = alloc1float(emf->nfreq);
   if(emf->verb) {
