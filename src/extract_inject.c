@@ -273,9 +273,11 @@ void inject_adjoint_sources(acq_t *acq, int ifreq, int ipolar)
   d3s = gmg[0].d3s;
   invmur = gmg[0].invmur;
   
-  // Store adjoint receiver amplitudes as integrated loads. The electric
-  // source enters the RHS directly; magnetic loads are converted to densities
-  // below because invmur is stored with a cell-volume factor.
+  // Store adjoint receiver amplitudes as integrated finite-integration RHS
+  // loads: the support-volume factor has already been absorbed during
+  // injection. The electric source therefore enters the RHS directly; magnetic
+  // loads are converted below because invmur is stored with a cell-volume
+  // factor.
   //finally inject source terms for E and H
   for (irec = 0; irec < acq->nrec; irec++) {
     i = find_index(gmg[0].n1, gmg[0].x1s, acq->rec_x1[irec]);
@@ -355,7 +357,7 @@ void inject_adjoint_sources(acq_t *acq, int ifreq, int ipolar)
     Hy[kp1][jp1][ip1] += s * w1 * w2 * w3;
   }
 
-  //form the right hand side of adjoint equation
+  //form the right hand side of adjoint equation, volume factor has been inccluded
   n1 = gmg[0].n1;
   n2 = gmg[0].n2;
   n3 = gmg[0].n3;
