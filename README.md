@@ -8,6 +8,7 @@
 - `include/`: public headers for shared data structures and utilities.
 - `bin/`: build output. The executable is `bin/libcMT`.
 - `run_modelling/`: runnable example that generates HDF5 inputs, runs the solver, and plots MT responses.
+- `run_inversion/`: runnable inversion template with synthetic true/initial models, receiver generation, inversion/gradient launch scripts, and plotting helpers.
 - `test_mt1d/`: standalone 1D MT reference experiments and notes.
 - `test_parallelization/`: small MPI master/worker scheduling example.
 - `doc/`: MT boundary-condition notes and PDFs.
@@ -21,7 +22,7 @@
 - `src/gmg.c`: geometric multigrid hierarchy, cycles, smoothers, and residual handling.
 - `src/extend_model.c`: extends the input model with padding cells for the computational grid.
 - `src/mt1d_solve.c`: 1D MT boundary-field solver used to seed the 3D solve.
-- `src/extract_inject.c`: receiver extraction and adjoint-source injection.
+- `src/inject_extract.c`: receiver extraction and adjoint-source injection.
 - `src/emf_init_free.c`: reads frequencies and the resistivity model from HDF5.
 - `src/acq_init_free.c`: reads receiver geometry from HDF5.
 - `src/read_write.c`: reads observed MT data and writes modelled MT responses.
@@ -49,7 +50,7 @@ make clean
 Notes:
 
 - The Makefile uses `mpicc`.
-- HDF5 include/library paths are currently set in `src/Makefile`.
+- HDF5 compiler and linker flags are resolved with `pkg-config`.
 
 ## Runtime Interface
 
@@ -57,15 +58,15 @@ The executable accepts command-line arguments as `key=value`.
 
 Important arguments used by the current code:
 
-- `mode=0` for forward modelling, `mode=1` for inversion.
+- `mode=0` for forward modelling, `mode=1` for full inversion, `mode=2` for a single objective/gradient evaluation.
 - `freqs=...` for a comma-separated frequency list, or `ffreqs=...` for an HDF5 file containing dataset `freqs`.
 - `fmodel=...` for the HDF5 model file.
 - `frec=...` for the HDF5 receiver file.
-- `fdata=...` for observed MT data in inversion mode.
+- `fdata=...` for the forward output file in modelling mode, or observed MT data in inversion/gradient mode. If omitted in modelling mode, the output file is `mt_data.h5`.
 - `verb=0|1` for verbosity.
 - `tol`, `cycleopt`, `ncycle`, `v1`, `v2`, `isemicoarsen` for multigrid control.
 - `nb`, `rho_skin`, `rho_air` for automatic model extension and air handling.
-- `niter`, `nls`, `npair`, `bound`, `method`, `ncg`, `c1`, `c2`, `alpha` for inversion/optimizer control.
+- `niter`, `nls`, `npair`, `bound`, `method`, `ncg`, `c1`, `c2`, `alpha`, `gtol` for inversion/optimizer control. If `gtol` is not supplied, inversion falls back to `tol`.
 
 ## Input Files
 
@@ -99,16 +100,16 @@ For inversion, the observed MT data file must contain:
 
 ## Output
 
-Forward modelling writes `mt_data.h5` in the current working directory with:
+Forward modelling writes `mt_data.h5`, or the path supplied by `fdata=`, in the current working directory with:
 
 - `frequencies`
 - `receiver_index`
 - `receiver_position`
 - `Zxx`, `Zxy`, `Zyx`, `Zyy`
 
-In inversion mode, the optimizer also writes `iterate.txt`.
+In inversion mode, the optimizer also writes `iterate.txt`, per-iteration model snapshots named `model_iterXXXX.h5`, and per-iteration gradients named `gradient_iterXXXX.h5`. In `mode=2`, the code writes `gradient_iter0000.h5` after the first objective/gradient evaluation and exits without running a line search.
 
-## Example Workflow
+## Forward Modelling Template
 
 The current runnable example lives in `run_modelling/`.
 
@@ -137,6 +138,8 @@ The shipped `run.sh` currently:
 - runs `../bin/libcMT` with inline `freqs=0.01,0.1,1,10,100`
 - writes `mt_data.h5` in `run_modelling/`
 
+Additional plotting can be run with `plot_mt_results.py` to write station-period figures and per-frequency receiver maps.
+
 Manual forward examples:
 
 ```bash
@@ -153,6 +156,45 @@ Manual inversion example:
 ./bin/libcMT mode=1 freqs=0.01,0.1 fmodel=model.h5 frec=receivers.h5 fdata=mt_data.h5 niter=20 npair=5
 ```
 
+## Inversion Template
+
+The `run_inversion/` directory provides a small end-to-end template for synthetic inversion experiments.
+
+Files there:
+
+- `run_inversion/run.sh`: regenerates the model and receiver inputs, plots true/initial models, and launches the solver in inversion mode.
+- `run_inversion/make_models_3d.py`: creates `model_true.h5` and `model_init.h5`.
+- `run_inversion/make_acquisition.py`: creates a `3 x 3` receiver grid in `receivers.h5` and `receivers_layout.png`.
+- `run_inversion/plot_models_3d.py`: visualizes true, initial, and recovered model HDF5 files.
+- `run_inversion/plot_gradient_3d.py`: visualizes `gradient_iterXXXX.h5`.
+- `run_inversion/plot_iterate.py`: converts `iterate.txt` to `inversion_convergence.png`.
+- `run_inversion/extract_final_model.py`: reconstructs `model_recovered.h5` from a verbose inversion log.
+
+Typical inversion setup:
+
+```bash
+cd src
+make
+
+cd ../run_inversion
+python3 make_models_3d.py
+python3 make_acquisition.py
+
+# Generate synthetic observed data from the true model.
+../bin/libcMT mode=0 freqs=1 fmodel=model_true.h5 frec=receivers.h5 fdata=mt_data.h5
+
+# Run inversion from the initial model.
+../bin/libcMT mode=1 freqs=1 fmodel=model_init.h5 frec=receivers.h5 fdata=mt_data.h5 niter=20 npair=5 gtol=1e-6
+```
+
+For a faster gradient-output smoke test, use:
+
+```bash
+../bin/libcMT mode=2 freqs=1 fmodel=model_init.h5 frec=receivers.h5 fdata=mt_data.h5
+```
+
+The inversion template uses the same HDF5 model contract as the forward template. `model_iterXXXX.h5` snapshots are also reusable as `fmodel=` inputs because they include `fx1`, `fx2`, `fx3`, `frho11`, `frho22`, and `frho33`.
+
 ## Current Behavior Notes
 
 - MPI parallelization is implemented across frequencies.
@@ -160,7 +202,7 @@ Manual inversion example:
 - In inversion mode, rank 0 owns the optimizer and workers handle per-frequency forward/adjoint solves.
 - The current inversion parameterization is VTI in log-conductivity: one horizontal parameter for `sigma11 = sigma22`, and one vertical parameter for `sigma33`.
 - The code treats cells with resistivity greater than or equal to `rho_air` as air when applying inversion bounds and building the extended model.
-- Frequencies can be supplied directly with `freqs=...` or through `ffreqs=...`; HDF5 frequency files must contain dataset `freqs`.
+- Frequencies can be supplied directly with `freqs=...` or through `ffreqs=...` (HDF5 frequency file 'ffreqs' must contain dataset `freqs`).
 
 ## Notes On Included Test Directories
 
