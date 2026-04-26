@@ -69,7 +69,7 @@ static void solve_frequency(acq_t *acq, emf_t *emf, int ifreq, float _Complex *r
   complex det, *u_bc;
   double det_abs;
 
-  if (emf->verb) printf("**** freq=%g\n", emf->freqs[ifreq]);
+  if (emf->verb) printf("freq=%g\n", emf->freqs[ifreq]);
   extend_model_init(emf, ifreq);
   gmg_init(emf, ifreq);
   n = 3 * (gmg[0].n1 + 1) * (gmg[0].n2 + 1) * (gmg[0].n3 + 1);

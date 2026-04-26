@@ -217,10 +217,9 @@ static void write_float_dataset_3d(hid_t file_id, const char *name,
   check_hdf5_status(H5Sclose(space_id), "error closing HDF5 dataspace");
 }
 
-void write_inversion_model_hdf5(emf_t *emf, const float *x, int iter)
+void write_inversion_model_hdf5(emf_t *emf, const float *x)
 {
   hid_t file_id;
-  char fname[PATH_MAX];
   float *rho11, *rho22, *rho33;
   int i, j, k;
   int id;
@@ -246,14 +245,14 @@ void write_inversion_model_hdf5(emf_t *emf, const float *x, int iter)
     }
   }
 
-  snprintf(fname, sizeof(fname), "model_iter%04d.h5", iter);
-  file_id = H5Fcreate(fname, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
+  file_id = H5Fcreate("model_final.h5", H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
   if(file_id < 0) err("error opening inversion snapshot HDF5 file for writing");
 
+  /* Keep the full solver input contract so model_final.h5 can be used
+   * directly as fmodel= when restarting inversion. */
   write_float_dataset_1d(file_id, "fx1", emf->nx + 1, emf->x1node);
   write_float_dataset_1d(file_id, "fx2", emf->ny + 1, emf->x2node);
   write_float_dataset_1d(file_id, "fx3", emf->nz + 1, emf->x3node);
-  /* Write the full solver input contract so snapshots can be reused as fmodel=. */
   write_float_dataset_3d(file_id, "frho11", emf->nz, emf->ny, emf->nx, rho11);
   write_float_dataset_3d(file_id, "frho22", emf->nz, emf->ny, emf->nx, rho22);
   write_float_dataset_3d(file_id, "frho33", emf->nz, emf->ny, emf->nx, rho33);
@@ -267,17 +266,15 @@ void write_inversion_model_hdf5(emf_t *emf, const float *x, int iter)
   free1float(rho33);
 }
 
-void write_inversion_gradient_hdf5(emf_t *emf, const float *g, int iter)
+void write_inversion_gradient_hdf5(emf_t *emf, const float *g)
 {
   hid_t file_id;
-  char fname[PATH_MAX];
   int ncell;
 
   if(emf == NULL || g == NULL) err("invalid inversion gradient snapshot request");
 
   ncell = emf->nx * emf->ny * emf->nz;
-  snprintf(fname, sizeof(fname), "gradient_iter%04d.h5", iter);
-  file_id = H5Fcreate(fname, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
+  file_id = H5Fcreate("gradient.h5", H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
   if(file_id < 0) err("error opening inversion gradient HDF5 file for writing");
 
   write_float_dataset_1d(file_id, "fx1", emf->nx + 1, emf->x1node);

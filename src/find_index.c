@@ -9,25 +9,23 @@
  */
 int find_index(int n, double *x, double val)
 {
-  /* x[] must be sorted in ascending order. */
-  /* int i; */
-  
-  /* for(i=0; i<n; i++){ */
-  /*   if(val<x[i]) break; */
-  /* } */
+  int low, high, mid;
 
-  int low=0;
-  int high = n-1;
-  int i = (low+high)/2;
-  
-  while(low<high){
-    i=(low+high)/2;
-    if(x[i]<=val) low = i;
-    if(x[i]>val) high=i;
-    if(low==high||low==high-1) break;
+  if(n < 2) return 0;
+
+  if(val <= x[0]) return 0;
+  if(val >= x[n-1]) return n-2;
+
+  low = 0;
+  high = n - 2;
+  while(low <= high) {
+    mid = (low + high) / 2;
+    if(x[mid] <= val && val < x[mid + 1]) return mid;
+    if(val < x[mid]) high = mid - 1;
+    else low = mid + 1;
   }
 
-  return low;
+  return n - 2;
 }
 
 
