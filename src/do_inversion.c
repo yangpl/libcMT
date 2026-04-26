@@ -150,7 +150,7 @@ int do_inversion(acq_t *acq, emf_t *emf)
   for(opt.iter = 0; opt.iter < opt.niter; ++opt.iter) {
     opt.gk_norm = l2norm(opt.n, opt.g);
     if(opt.verb) {
-      printf("====== iteration=%d fk=%g ||g||=%g ======\n", opt.iter, opt.fk, opt.gk_norm);
+      printf("#### iteration=%d, fk=%g, ||g||=%g \n", opt.iter, opt.fk, opt.gk_norm);
       if(fp) {
         fprintf(fp, "%6d %14.6e %14.6e %14.6e %10.4e %6d %8d\n",
                 opt.iter, opt.fk, opt.fk / opt.f0, opt.gk_norm,
