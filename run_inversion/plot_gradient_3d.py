@@ -10,18 +10,24 @@ import h5py
 import matplotlib.pyplot as plt
 import numpy as np
 from discretize import TensorMesh
+from discretize.mixins.mpl_mod import Slicer
 from matplotlib.colors import SymLogNorm
 
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Visualize an inversion gradient snapshot from gradient_iterXXXX.h5."
+        description="Visualize the latest inversion gradient from gradient.h5."
     )
     parser.add_argument(
         "gradient_file",
         nargs="?",
-        default="gradient_iter0000.h5",
-        help="Path to the gradient HDF5 file. Default: gradient_iter0000.h5",
+        default="gradient.h5",
+        help="Path to the gradient HDF5 file. Default: gradient.h5",
+    )
+    parser.add_argument(
+        "--mesh-model",
+        default="model_init.h5",
+        help="Reference model file that provides fx1/fx2/fx3 when the gradient file omits them. Default: model_init.h5",
     )
     parser.add_argument(
         "--component",
@@ -72,13 +78,25 @@ def parse_args():
     return parser.parse_args()
 
 
-def read_gradient(path, component):
+def read_mesh(path):
     with h5py.File(path, "r") as handle:
         x1 = np.asarray(handle["fx1"][:], dtype=np.float64)
         x2 = np.asarray(handle["fx2"][:], dtype=np.float64)
         x3 = np.asarray(handle["fx3"][:], dtype=np.float64)
+    return x1, x2, x3
+
+
+def read_gradient(path, component, mesh_path):
+    with h5py.File(path, "r") as handle:
+        if all(name in handle for name in ("fx1", "fx2", "fx3")):
+            x1 = np.asarray(handle["fx1"][:], dtype=np.float64)
+            x2 = np.asarray(handle["fx2"][:], dtype=np.float64)
+            x3 = np.asarray(handle["fx3"][:], dtype=np.float64)
+        else:
+            x1, x2, x3 = read_mesh(mesh_path)
         gradient = np.asarray(handle[component][:], dtype=np.float64)
-    return x1, x2, x3, gradient
+        iteration = int(handle["iteration"][0]) if "iteration" in handle else None
+    return x1, x2, x3, gradient, iteration
 
 
 def build_plotting_mesh(x1, x2, x3):
@@ -106,7 +124,7 @@ def robust_symmetric_limit(values):
 def main():
     args = parse_args()
     gradient_path = Path(args.gradient_file)
-    x1, x2, x3, gradient = read_gradient(gradient_path, args.component)
+    x1, x2, x3, gradient, iteration = read_gradient(gradient_path, args.component, args.mesh_model)
     mesh, x3_plot = build_plotting_mesh(x1, x2, x3)
     values = reorder_gradient_for_plotting(gradient)
 
@@ -118,15 +136,14 @@ def main():
         f"Loaded {args.component} from {gradient_path}: "
         f"nx={x1.size - 1}, ny={x2.size - 1}, nz={x3.size - 1}, "
         f"vmax={vmax:g}, linthresh={linthresh:g}"
+        + (f", iteration={iteration}" if iteration is not None else "")
     )
 
+    fig = plt.figure()
     with warnings.catch_warnings():
-        warnings.filterwarnings(
-            "ignore",
-            message="FigureCanvasAgg is non-interactive.*",
-            category=UserWarning,
-        )
-        mesh.plot_3d_slicer(
+        warnings.filterwarnings("ignore", category=UserWarning)
+        tracker = Slicer(
+            mesh,
             values,
             xslice=args.xslice,
             yslice=args.yslice,
@@ -139,12 +156,16 @@ def main():
                 "cmap": "seismic",
             },
         )
-    fig = plt.gcf()
-    fig.suptitle(f"{args.component}: {gradient_path.name}")
+    fig.canvas.mpl_connect("scroll_event", tracker.onscroll)
+    title = f"{args.component}: {gradient_path.name}"
+    if iteration is not None:
+        title += f" (iteration {iteration})"
+    fig.suptitle(title)
 
     output = Path(args.save) if args.save else gradient_path.with_name(
         f"{gradient_path.stem}_{args.component}.png"
     )
+    fig.canvas.draw()
     fig.savefig(output, dpi=180)
     print(f"Saved gradient figure to {output}")
     if args.show:

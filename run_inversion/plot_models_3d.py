@@ -11,12 +11,12 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 from discretize import TensorMesh
-from matplotlib.colors import LogNorm
+from matplotlib.colors import LogNorm, SymLogNorm
 
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Visualize true and initial inversion models from HDF5 as 3D voxel views."
+        description="Visualize true, initial, and recovered inversion models from HDF5 as 3D voxel views."
     )
     parser.add_argument(
         "--true-model",
@@ -29,10 +29,25 @@ def parse_args():
         help="Path to the initial-model HDF5 file. Default: model_init.h5",
     )
     parser.add_argument(
+        "--recovered-model",
+        default="model_final.h5",
+        help="Path to the latest recovered-model HDF5 file. Default: model_final.h5",
+    )
+    parser.add_argument(
+        "--mesh-model",
+        default=None,
+        help="Reference model file that provides fx1/fx2/fx3 when a plotted file omits them. Default: --initial-model",
+    )
+    parser.add_argument(
+        "--require-recovered",
+        action="store_true",
+        help="Fail if --recovered-model is missing. Default: skip missing recovered model",
+    )
+    parser.add_argument(
         "--component",
         choices=("frho11", "frho22", "frho33"),
-        default="frho33",
-        help="Resistivity tensor component to plot. Default: frho33",
+        default="frho11",
+        help="Resistivity tensor component to plot. Default: frho11",
     )
     parser.add_argument(
         "--xslice",
@@ -71,6 +86,17 @@ def parse_args():
         help="Upper color limit for LogNorm. Default: 100",
     )
     parser.add_argument(
+        "--diff-vmax",
+        type=float,
+        default=None,
+        help="Symmetric color limit for log10(final / initial). Default: 98th percentile",
+    )
+    parser.add_argument(
+        "--no-difference",
+        action="store_true",
+        help="Do not save the final-vs-initial difference slicer.",
+    )
+    parser.add_argument(
         "--save-prefix",
         default="model_3d",
         help="Filename prefix for saved PNG files. Default: model_3d",
@@ -83,13 +109,27 @@ def parse_args():
     return parser.parse_args()
 
 
-def read_model(path, component):
+def read_mesh(path):
     with h5py.File(path, "r") as handle:
         x1 = np.asarray(handle["fx1"][:], dtype=np.float64)
         x2 = np.asarray(handle["fx2"][:], dtype=np.float64)
         x3 = np.asarray(handle["fx3"][:], dtype=np.float64)
+    return x1, x2, x3
+
+
+def read_model(path, component, mesh_path=None):
+    with h5py.File(path, "r") as handle:
+        if all(name in handle for name in ("fx1", "fx2", "fx3")):
+            x1 = np.asarray(handle["fx1"][:], dtype=np.float64)
+            x2 = np.asarray(handle["fx2"][:], dtype=np.float64)
+            x3 = np.asarray(handle["fx3"][:], dtype=np.float64)
+        elif mesh_path is not None:
+            x1, x2, x3 = read_mesh(mesh_path)
+        else:
+            raise KeyError(f"{path} does not contain fx1/fx2/fx3; pass --mesh-model")
         rho = np.asarray(handle[component][:], dtype=np.float64)
-    return x1, x2, x3, rho
+        iteration = int(handle["iteration"][0]) if "iteration" in handle else None
+    return x1, x2, x3, rho, iteration
 
 
 def build_plotting_mesh(x1, x2, x3):
@@ -105,6 +145,14 @@ def reorder_model_for_plotting(rho):
     # HDF5 model uses (nz, ny, nx). The plotting arrays use (nx, ny, nz).
     values = np.transpose(rho, (2, 1, 0))
     return values[:, :, ::-1]
+
+
+def robust_symmetric_limit(values):
+    finite = np.abs(values[np.isfinite(values)])
+    if finite.size == 0:
+        return 1.0
+    vmax = np.percentile(finite, 98.0)
+    return float(vmax) if vmax > 0.0 else 1.0
 
 
 def coarsen_edges(edges, stride):
@@ -187,15 +235,76 @@ def plot_tensor_mesh_slicer(
     return fig
 
 
-def plot_one_model(label, model_path, component, xslice, yslice, zslice, stride, vmin, vmax):
-    x1, x2, x3, rho = read_model(model_path, component)
+def plot_difference_slicer(
+    component,
+    initial_path,
+    final_path,
+    mesh_path,
+    xslice,
+    yslice,
+    zslice,
+    diff_vmax,
+):
+    x1, x2, x3, initial_rho, _ = read_model(initial_path, component)
+    xf, yf, zf, final_rho, final_iter = read_model(final_path, component, mesh_path)
+    if not (np.allclose(x1, xf) and np.allclose(x2, yf) and np.allclose(x3, zf)):
+        raise ValueError("initial and final model meshes do not match")
+
+    initial = reorder_model_for_plotting(initial_rho)
+    final = reorder_model_for_plotting(final_rho)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        change = np.full_like(final, np.nan, dtype=np.float64)
+        valid = (initial > 0.0) & (final > 0.0)
+        change[valid] = np.log10(final[valid] / initial[valid])
+
+    vmax = diff_vmax if diff_vmax is not None else robust_symmetric_limit(change)
+    linthresh = max(vmax * 1e-3, 1e-12)
+    mesh, x3_plot = build_plotting_mesh(x1, x2, x3)
+
+    fig = plt.figure(figsize=(8.0, 7.0))
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="FigureCanvasAgg is non-interactive.*",
+            category=UserWarning,
+        )
+        mesh.plot_3d_slicer(
+            change,
+            xslice=xslice,
+            yslice=yslice,
+            zslice=zslice,
+            xlim=(x1[0], x1[-1]),
+            ylim=(x2[0], x2[-1]),
+            zlim=(x3_plot[0], x3_plot[-1]),
+            pcolor_opts={
+                "norm": SymLogNorm(linthresh=linthresh, vmin=-vmax, vmax=vmax),
+                "cmap": "seismic",
+            },
+            fig=fig,
+        )
+
+    title = f"log10(final / initial) for {component}: {Path(final_path).name}"
+    if final_iter is not None:
+        title += f" (iteration {final_iter})"
+    fig.suptitle(title)
+    print(
+        f"Computed log10(final / initial) for {component}: "
+        f"vmax={vmax:g}, linthresh={linthresh:g}"
+    )
+    return fig
+
+
+def plot_one_model(label, model_path, mesh_path, component, xslice, yslice, zslice, stride, vmin, vmax):
+    x1, x2, x3, rho, iteration = read_model(model_path, component, mesh_path)
     mesh, x3_plot = build_plotting_mesh(x1, x2, x3)
     values = reorder_model_for_plotting(rho)
+    display_label = label if iteration is None else f"{label} (iteration {iteration})"
 
     print(mesh)
     print(
         f"Loaded {component} from {model_path}: "
         f"nx={x1.size - 1}, ny={x2.size - 1}, nz={x3.size - 1}"
+        + (f", iteration={iteration}" if iteration is not None else "")
     )
 
     stride = max(1, stride)
@@ -230,7 +339,7 @@ def plot_one_model(label, model_path, component, xslice, yslice, zslice, stride,
         edgecolor=(0.05, 0.05, 0.05, 0.08),
         linewidth=0.15,
     )
-    ax.set_title(f"{label}: {Path(model_path).name}")
+    ax.set_title(f"{display_label}: {Path(model_path).name}")
     ax.set_xlabel("x (m)")
     ax.set_ylabel("y (m)")
     ax.set_zlabel("z (m)")
@@ -250,7 +359,7 @@ def plot_one_model(label, model_path, component, xslice, yslice, zslice, stride,
         label=f"{component} (Ohm m)",
     )
     slicer_fig = plot_tensor_mesh_slicer(
-        label,
+        display_label,
         model_path,
         component,
         mesh,
@@ -269,46 +378,61 @@ def plot_one_model(label, model_path, component, xslice, yslice, zslice, stride,
 
 def main():
     args = parse_args()
-    figures = [
-        (
-            "True model",
-            *plot_one_model(
-                "True model",
-                args.true_model,
-                args.component,
-                args.xslice,
-                args.yslice,
-                args.zslice,
-                args.stride,
-                args.vmin,
-                args.vmax,
-            ),
-        ),
-        (
-            "Initial model",
-            *plot_one_model(
-                "Initial model",
-                args.initial_model,
-                args.component,
-                args.xslice,
-                args.yslice,
-                args.zslice,
-                args.stride,
-                args.vmin,
-                args.vmax,
-            ),
-        ),
+    mesh_model = args.mesh_model if args.mesh_model is not None else args.initial_model
+    model_specs = [
+        ("True model", "true", args.true_model, None, True),
+        ("Initial model", "initial", args.initial_model, None, True),
+        ("Recovered model", "recovered", args.recovered_model, mesh_model, args.require_recovered),
     ]
+    figures = []
+    for label, suffix, model_path, mesh_path, required in model_specs:
+        if not Path(model_path).exists():
+            if required:
+                raise FileNotFoundError(f"required model file not found: {model_path}")
+            print(f"Skipping {label.lower()}: {model_path} does not exist")
+            continue
+        figures.append(
+            (
+                label,
+                suffix,
+                *plot_one_model(
+                    label,
+                    model_path,
+                    mesh_path,
+                    args.component,
+                    args.xslice,
+                    args.yslice,
+                    args.zslice,
+                    args.stride,
+                    args.vmin,
+                    args.vmax,
+                ),
+            )
+        )
 
     prefix = Path(args.save_prefix)
-    for label, voxel_fig, slicer_fig in figures:
-        suffix = "true" if label.startswith("True") else "initial"
+    for label, suffix, voxel_fig, slicer_fig in figures:
         voxel_output = prefix.parent / f"{prefix.name}_{suffix}.png"
         slicer_output = prefix.parent / f"{prefix.name}_slicer_{suffix}.png"
         voxel_fig.savefig(voxel_output, dpi=180)
         slicer_fig.savefig(slicer_output, dpi=180)
         print(f"Saved {label.lower()} voxel figure to {voxel_output}")
         print(f"Saved {label.lower()} TensorMesh slicer figure to {slicer_output}")
+
+    if not args.no_difference and Path(args.recovered_model).exists():
+        change_fig = plot_difference_slicer(
+            args.component,
+            args.initial_model,
+            args.recovered_model,
+            mesh_model,
+            args.xslice,
+            args.yslice,
+            args.zslice,
+            args.diff_vmax,
+        )
+        change_output = prefix.parent / f"{prefix.name}_slicer_change.png"
+        change_fig.savefig(change_output, dpi=180)
+        print(f"Saved final-vs-initial TensorMesh slicer figure to {change_output}")
 
     if args.show:
         plt.show()
