@@ -74,7 +74,7 @@ void mt1d_solve_ani(double freq,
   const double MU0 = mu0;
   const double tiny = 1e-30;
   double omega = 2.0*PI*freq;
-  complex iom = I*omega*MU0;
+  complex iom = -I*omega*MU0; /* matches the \partial_t -> i*omega convention */
   double *Axx = NULL, *Ayy = NULL, *Axy = NULL;
   double *logSprod = NULL;
   complex *Sprod = NULL, *xip = NULL, *xim = NULL, *QpNeg = NULL, *QmNegRec = NULL;

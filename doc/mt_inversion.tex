@@ -11,7 +11,7 @@
 
 \begin{document}
 
-\title{libcMT: A C library for 3D MT inversion via matrix-free multigrid modelling}
+\title{\texttt{libcMT}: A C library for 3D MT inversion with matrix-free multigrid modelling}
 
 \author{
   Pengliang Yang$^{1}$\thanks{Corresponding author. E-mail: ypl.2100@gmail.com} \and
@@ -28,37 +28,37 @@
 \end{center}
 
 \begin{abstract}
-Efficient numerical modelling is central to electromagnetic inversion. In magnetotellurics (MT), the widely used ModEM framework demonstrates the importance of modular design and frequency parallelism. However, the repeated solution of large, frequency-domain forward problems remains a computational bottleneck, especially for high-resolution 3D inversions. We present \texttt{libcMT}, a lightweight C library for 3D MT inversion that combines a matrix-free geometrical multigrid (GMG) solver with dynamic MPI parallelisation over frequencies. The matrix-free approach eliminates the need to store the full system matrix, reducing memory footprint and improving data locality. The GMG solver accelerates convergence of both forward and adjoint solves by exploiting the mesh hierarchy. Frequency parallelism is implemented through a master–worker MPI scheme that dynamically distributes frequencies, achieving load balance even when the cost per frequency varies substantially. The library is designed to be modular, portable, and easy to integrate into existing inversion workflows. We describe the underlying mathematical formulation, the key numerical components, and the parallelisation strategy, illustrating how \texttt{libcMT} enables efficient large-scale 3D MT inversion.
+Efficient numerical modelling is central to electromagnetic inversion. In magnetotellurics (MT), the repeated solution of large frequency-domain forward and adjoint problems remains a major computational bottleneck, particularly for high-resolution 3D inversions. We present \texttt{libcMT}, a lightweight C library for 3D MT inversion that combines a matrix-free geometrical multigrid (GMG) solver with dynamic MPI parallelisation over frequencies. The matrix-free formulation avoids storage of the full system matrix, thereby reducing memory footprint and improving data locality. The GMG solver accelerates both forward and adjoint solves by exploiting a hierarchy of nested meshes. Frequency parallelism is implemented through a master--worker MPI scheme that dynamically distributes frequencies and maintains load balance when the cost per frequency varies. The library is designed to be modular, portable, and straightforward to integrate into existing inversion workflows. We describe the mathematical formulation, the main numerical components, and the parallelisation strategy, showing how \texttt{libcMT} supports efficient large-scale 3D MT inversion.
 \end{abstract}
 
 \section{Introduction}
 
-Magnetotelluric (MT) inversion is a principal tool for imaging the electrical conductivity structure of the Earth from surface electromagnetic observations. In modern 3D applications, however, the computational cost of inversion is dominated by the repeated solution of large frequency-domain forward problems over many frequencies, source polarisations, and optimisation iterations. Each model update requires not only forward simulations for data prediction, but also adjoint simulations for gradient evaluation. As survey size, model resolution, and frequency bandwidth increase, the total cost quickly becomes the main obstacle to routine large-scale inversion.
+Magnetotelluric (MT) inversion is a principal tool for imaging the electrical conductivity structure of the Earth from surface electromagnetic observations. In modern 3D applications, however, the computational cost is dominated by repeated solutions of large frequency-domain forward problems over many frequencies, source polarisations, and optimisation iterations. Each model update requires forward simulations for data prediction and adjoint simulations for gradient evaluation. As survey size, model resolution, and frequency bandwidth increase, this repeated-solve cost becomes the main obstacle to routine large-scale inversion.
 
-A large part of this cost comes from the linear algebra. Conventional implementations often assemble sparse system matrices explicitly and then rely on direct or iterative solvers to compute the MT fields. Although such approaches are robust, the memory footprint of matrix assembly becomes increasingly restrictive for fine 3D meshes, especially when several frequencies must be handled within the same inversion workflow. In practice, memory traffic and coarse‑grid solver cost can limit scalability as much as floating‑point work. Recent MT studies have therefore explored geometrical multigrid strategies to improve the efficiency of large 3D forward simulations \citep{WangEtAl2022,HuangEtAl2023}. This makes computational efficiency a software‑design problem as well as a numerical‑analysis problem.
+A large part of this cost arises from the underlying linear algebra. Conventional implementations often assemble sparse system matrices explicitly and then use direct or iterative solvers to compute the MT fields. Although such approaches are robust, the memory footprint of matrix assembly becomes increasingly restrictive on fine 3D meshes, especially when several frequencies must be handled within the same inversion workflow. In practice, memory traffic and coarse‑grid solver cost can limit scalability as much as floating‑point work. Recent MT studies have therefore explored geometrical multigrid strategies to improve the efficiency of large 3D forward simulations \citep{WangEtAl2022,HuangEtAl2023}. Computational efficiency is thus both a numerical-analysis problem and a software-design problem.
 
-Existing MT inversion frameworks have demonstrated the value of modular and parallel software design. In particular, ModEM has become a widely used platform for electromagnetic inversion and has established frequency‑parallel modelling as a practical strategy for 3D MT applications \citep{EgbertKelbert2012,KelbertEtAl2014}. Parallel finite‑element approaches have also shown that large‑scale 3D MT inversion can benefit substantially from modern high‑performance computing resources \citep{GrayverEtAl2015}. These developments make clear that further progress depends on reducing both the per‑solve cost and the parallel overhead across many frequencies.
+Existing MT inversion frameworks have demonstrated the value of modular and parallel software design. In particular, ModEM has become a widely used platform for electromagnetic inversion and has established frequency‑parallel modelling as a practical strategy for 3D MT applications \citep{EgbertKelbert2012,KelbertEtAl2014}. Parallel finite‑element approaches have also shown that large‑scale 3D MT inversion can benefit substantially from modern high‑performance computing resources \citep{GrayverEtAl2015}. These developments indicate that further progress requires reductions in both per-solve cost and parallel overhead across many frequencies.
 
-The motivation for developing \texttt{libcMT} is therefore straightforward: we seek a software framework that combines an efficient matrix‑free geometrical multigrid (GMG) solver for the field equations with a load‑balanced parallel strategy for inversion over frequencies. The matrix‑free formulation avoids storing the full discretised operator explicitly and instead computes operator actions on the fly, which reduces memory demand and improves data locality. Geometrical multigrid then exploits the nested mesh hierarchy to accelerate convergence of both forward and adjoint solves. Recent MT forward‑modelling studies have shown that GMG can outperform commonly used Krylov‑based strategies in iteration count, runtime, and robustness on large 3D problems \citep{WangEtAl2022,HuangEtAl2023}. Because MT inversion requires solving closely related systems many times, these two features are especially valuable: they reduce the cost of each solve while preserving a structure that can be reused consistently throughout the inversion.
+The motivation for developing \texttt{libcMT} is therefore straightforward: we seek a software framework that combines an efficient matrix-free geometrical multigrid (GMG) solver for the field equations with load-balanced parallelism over frequencies. The matrix-free formulation avoids storing the full discretised operator explicitly and instead computes operator actions on the fly, reducing memory demand and improving data locality. Geometrical multigrid then exploits the nested mesh hierarchy to accelerate convergence of both forward and adjoint solves. Recent MT forward-modelling studies have shown that GMG can outperform commonly used Krylov-based strategies in iteration count, runtime, and robustness on large 3D problems \citep{WangEtAl2022,HuangEtAl2023}. Because MT inversion solves closely related systems many times, these two features are especially valuable: they reduce the cost of each solve while preserving a structure that can be reused consistently throughout the inversion.
 
-In addition, frequency‑domain MT inversion offers a natural second level of parallelism. For a fixed conductivity model, the forward and adjoint problems at different frequencies are independent, so they can be distributed across MPI ranks with little communication. However, the runtime per frequency is often heterogeneous, which motivates dynamic scheduling rather than static partitioning. The software presented here is designed around this observation. \texttt{libcMT} combines matrix‑free GMG for efficient single‑frequency modelling with dynamic MPI scheduling for scalable multi‑frequency inversion, yielding a practical library‑oriented implementation for large 3D MT problems.
+Frequency‑domain MT inversion also offers a natural second level of parallelism. For a fixed conductivity model, the forward and adjoint problems at different frequencies are independent, so they can be distributed across MPI ranks with little communication. The runtime per frequency is often heterogeneous, however, which motivates dynamic scheduling rather than static partitioning. The software presented here is designed around this observation. \texttt{libcMT} combines matrix‑free GMG for efficient single‑frequency modelling with dynamic MPI scheduling for scalable multi‑frequency inversion, yielding a practical library-oriented implementation for large 3D MT problems.
 
-The remainder of the paper is organised as follows. We first summarise the MT forward problem and the corresponding adjoint‑based inversion formulation. We then describe the matrix‑free GMG solver used for the forward and adjoint field computations, followed by the MPI strategy for dynamic parallelisation over frequencies. Together, these components define the core design of \texttt{libcMT} as a lightweight C library for efficient 3D MT inversion.
+The remainder of the paper is organised as follows. We first summarise the MT forward problem and the corresponding adjoint-based inversion formulation. We then describe the matrix-free GMG solver used for forward and adjoint field computations, followed by the MPI strategy for dynamic parallelisation over frequencies. Together, these components define the core design of \texttt{libcMT} as a lightweight C library for efficient 3D MT inversion.
 
 \section{MT forward problem}
 
-Diffusive electromagnetic fields are governed by Maxwell's equations, which with the Fourier convention $\partial_t\mapsto -i\omega$ read
+Diffusive electromagnetic fields are governed by Maxwell's equations. With the Fourier convention $\partial_t\mapsto i\omega$, these equations read
 \begin{subequations}
   \begin{align}
-    \nabla\times E - i\omega\mu H &= M_s,\label{eq:H}\\
+    \nabla\times E + i\omega\mu H &= M_s,\label{eq:H}\\
     \nabla\times H -\sigma E &= J_s, \label{eq:E}
   \end{align}
 \end{subequations}
-where $\mu=\mu_r\mu_0$ is the magnetic permeability (usually taken as the free‑space value $\mu_0$ in non‑magnetic Earth media) and $\sigma$ is the conductivity tensor. For natural MT sources, the impressed sources $M_s$ and $J_s$ are zero. Instead, the electromagnetic fields are generated by plane‑wave sources at infinity, which are incorporated through appropriate boundary conditions on the computational domain. The system can be written compactly as
+where $\mu=\mu_r\mu_0$ is the magnetic permeability, usually taken as the free-space value $\mu_0$ in non-magnetic Earth media, and $\sigma$ is the conductivity tensor. For natural MT sources, the impressed sources $M_s$ and $J_s$ are zero. Instead, the electromagnetic fields are generated by plane-wave sources at infinity and incorporated through boundary conditions on the computational domain. The system can be written compactly as
 \begin{equation}
 \underbrace{  \begin{bmatrix}
     -\sigma & \nabla\times\\
-    \nabla\times & -i\omega\mu
+    \nabla\times & i\omega\mu
   \end{bmatrix}}_{A(m)}\underbrace{\begin{bmatrix}
     E\\
     H
@@ -126,26 +126,26 @@ The four components of the impedance tensor are therefore given by
 
 \section{Matrix‑free geometrical multigrid solver}
 
-The core of \texttt{libcMT} is a matrix‑free geometrical multigrid (GMG) solver for the second‑order curl–curl formulation of Maxwell's equations. Eliminating the magnetic field from \eqref{eq:H}–\eqref{eq:E} gives
+The core of \texttt{libcMT} is a matrix-free geometrical multigrid (GMG) solver for the second-order curl--curl formulation of Maxwell's equations. Eliminating the magnetic field from \eqref{eq:H}--\eqref{eq:E} gives
 \begin{equation}\label{eq:curlcurl}
-\nabla\times\mu_r^{-1} \nabla \times E - i\omega\mu_0\sigma E = \nabla\times \mu_r^{-1} M_s + i\omega\mu_0 J_s,
+\nabla\times\mu_r^{-1} \nabla \times E + i\omega\mu_0\sigma E = \nabla\times \mu_r^{-1} M_s - i\omega\mu_0 J_s,
 \end{equation}
-which for the MT case (zero sources, i.e., $M_s=0$ and $J_s=0$) reduces to a homogeneous equation solved with boundary conditions derived from the 1D layered‑earth analytic solution. The discretisation uses a staggered grid (Yee cell) with electric fields on edges and magnetic fields on faces, ensuring proper handling of material discontinuities and divergence‑free conditions \citep{Yee1966}.
+which, for the MT case with $M_s=0$ and $J_s=0$, reduces to a homogeneous equation solved with boundary conditions derived from the 1D layered-earth analytic solution. The discretisation uses a staggered grid (Yee cell) with electric fields on edges and magnetic fields on faces, which improves the treatment of material discontinuities and divergence constraints \citep{Yee1966}.
 
-Instead of assembling the global system matrix explicitly, we implement the action of the discrete curl–curl operator as a sequence of local operations on the grid. This matrix‑free approach drastically reduces memory consumption and allows the use of the same operator in the multigrid cycles. The geometrical multigrid method constructs a hierarchy of nested grids by coarsening the original mesh by a factor of two in each direction \citep{BriggsEtAl2000}. On each level we apply:
+Instead of assembling the global system matrix explicitly, we implement the action of the discrete curl--curl operator as a sequence of local operations on the grid. This matrix-free approach reduces memory consumption and allows the same operator representation to be used throughout the multigrid cycles. The geometrical multigrid method constructs a hierarchy of nested grids by coarsening the original mesh by a factor of two in each direction \citep{BriggsEtAl2000}. On each level we apply:
 
 \begin{itemize}
-  \item \textbf{Smoothing}: a simple iterative method (e.g., damped Jacobi, Gauss–Seidel, or a polynomial smoother) to reduce high‑frequency errors. For the curl–curl operator, a hybrid smoother that combines a Gauss–Seidel sweep on the electric field components with a divergence correction often improves robustness \citep{Mulder2006, Yang_2024_multigrid}.
-  \item \textbf{Restriction}: the residual is transferred to the coarser grid using a full‑weighting restriction operator.
-  \item \textbf{Coarse‑grid correction}: the coarse‑level system is solved either exactly (if the grid is sufficiently small) or via another multigrid cycle, leading to a V‑cycle, W‑cycle, or full multigrid (FMG) schedule.
-  \item \textbf{Prolongation}: the coarse‑grid correction is interpolated back to the fine grid using bilinear (or trilinear) interpolation.
+  \item \textbf{Smoothing}: an iterative method, such as damped Jacobi, Gauss--Seidel, or a polynomial smoother, reduces high-frequency errors. For the curl--curl operator, a hybrid smoother that combines a Gauss--Seidel sweep on the electric field components with a divergence correction often improves robustness \citep{Mulder2006, Yang_2024_multigrid}.
+  \item \textbf{Restriction}: the residual is transferred to the coarser grid using a full-weighting restriction operator.
+  \item \textbf{Coarse-grid correction}: the coarse-level system is solved either exactly, if the grid is sufficiently small, or by another multigrid cycle, leading to a V-cycle, W-cycle, or full multigrid (FMG) schedule.
+  \item \textbf{Prolongation}: the coarse-grid correction is interpolated back to the fine grid using bilinear or trilinear interpolation.
 \end{itemize}
 
-Because the frequency‑domain curl–curl operator is complex and its convergence behaviour depends on conductivity contrasts, frequency, and mesh quality, the effectiveness of multigrid hinges on a robust combination of smoother, transfer operators, and coarse‑grid correction rather than on a simple positive‑definiteness argument. In \texttt{libcMT} we therefore use a V‑cycle with a fixed number of pre‑ and post‑smoothing steps, together with a rediscretised coarse‑grid operator on each level. The matrix‑free nature means that restriction, prolongation, and coarse‑grid operators are implemented from the grid geometry and material properties without storing full matrices. The coarse‑grid operator could also be formed by a Galerkin projection, but rediscretisation simplifies the implementation and maintains consistency across levels \citep{Mulder2006}.
+Because the frequency-domain curl--curl operator is complex and its convergence behaviour depends on conductivity contrasts, frequency, and mesh quality, the effectiveness of multigrid depends on a robust combination of smoother, transfer operators, and coarse-grid correction rather than on a simple positive-definiteness argument. In \texttt{libcMT} we therefore use a V-cycle with a fixed number of pre- and post-smoothing steps, together with a rediscretised coarse-grid operator on each level. Restriction, prolongation, and coarse-grid operators are implemented from the grid geometry and material properties without storing full matrices. The coarse-grid operator could also be formed by a Galerkin projection, but rediscretisation simplifies the implementation and maintains consistency across levels \citep{Mulder2006}.
 
 For MT inversion, the same multigrid solver is used for both the forward problems (two polarisations per frequency) and the adjoint problems. The adjoint equation (derived below) has the same form as the forward equation but with a different source term, so the same solver can be applied without modification. This reuse simplifies the library design and reduces code duplication.
 
-Recent studies have demonstrated that multigrid methods can significantly outperform conventional Krylov subspace solvers for 3D electromagnetic forward problems, particularly when the grid becomes large \citep{Mulder2006, WangEtAl2022, HuangEtAl2023}. The matrix‑free GMG implementation in \texttt{libcMT} follows the approach described by \citet{Yang_2024_multigrid}, who showed that a well‑tuned multigrid solver with a matrix‑free stencil can achieve near‑linear scaling and low memory footprint on fine grids. In our context, the same GMG engine is called repeatedly for many frequencies and inversion iterations, making the initial setup cost of the multigrid hierarchy negligible compared to the total solve time.
+Recent studies have demonstrated that multigrid methods can significantly outperform conventional Krylov subspace solvers for 3D electromagnetic forward problems, particularly on large grids \citep{Mulder2006, WangEtAl2022, HuangEtAl2023}. The matrix-free GMG implementation in \texttt{libcMT} follows the approach described by \citet{Yang_2024_multigrid}, who showed that a well-tuned multigrid solver with a matrix-free stencil can achieve near-linear scaling and a low memory footprint on fine grids. In our context, the same GMG engine is called repeatedly for many frequencies and inversion iterations, making the initial setup cost of the multigrid hierarchy small compared with the total solve time.
 
 \section{MT inversion}
 
@@ -161,7 +161,7 @@ Taking the derivative of equation~\eqref{eq:fwd} with respect to the model param
   \frac{\partial u^p}{\partial m} = -A^{-1}(m)\frac{\partial A(m)}{\partial m}u^p \quad (p=1,2).
 \end{equation}
 
-Let the data vector be $d=(Z_{xx}, Z_{xy}, Z_{yx}, Z_{yy})^T$, and define the data residual as $\Delta d = d^{\mathrm{cal}} - d^{\mathrm{obs}}$. In principle, a 3D MT inversion may use all four impedance components because the diagonal terms can contain genuine 3D information. In practice, however, the diagonal impedances $Z_{xx}$ and $Z_{yy}$ are often smaller in magnitude and more strongly contaminated by noise, galvanic distortion, site effects, or processing artefacts than the off-diagonal terms $Z_{xy}$ and $Z_{yx}$. For this reason, we retain the full impedance tensor in the data vector but do not necessarily weight all four components equally. Instead, the data-weighting matrix $W_d$ is chosen to downweight unreliable diagonal data through larger assigned errors, so that these data contribute to the inversion without forcing the optimisation to overfit unstable measurements. A practical choice is to define the standard deviation of each impedance datum as
+Let the data vector be $d=(Z_{xx}, Z_{xy}, Z_{yx}, Z_{yy})^T$, and define the data residual as $\Delta d = d^{\mathrm{cal}} - d^{\mathrm{obs}}$. In principle, a 3D MT inversion may use all four impedance components because the diagonal terms can contain genuine 3D information. In practice, however, the diagonal impedances $Z_{xx}$ and $Z_{yy}$ are often smaller in magnitude and more strongly affected by noise, galvanic distortion, site effects, or processing artefacts than the off-diagonal terms $Z_{xy}$ and $Z_{yx}$. We therefore retain the full impedance tensor in the data vector but do not require all four components to carry equal weight. The data-weighting matrix $W_d$ is chosen to downweight unreliable diagonal data through larger assigned errors, allowing these data to contribute without forcing the optimisation to overfit unstable measurements. A practical choice is to define the standard deviation of each impedance datum as
 \begin{equation}
 W^{-1}_{ij}=\max\!\left(\epsilon^{\mathrm{rel}}_{ij}|Z_{ij}|,\,\epsilon^{\mathrm{abs}}_{ij}\sqrt{|Z_{xy}Z_{yx}|}\right),
 \end{equation}
@@ -176,7 +176,7 @@ W^{-1}_{yy} &= \max\!\left(0.20|Z_{yy}|,\,0.03\sqrt{|Z_{xy}Z_{yx}|}\right).
 \end{aligned}
 \right.
 \end{equation}
-This strategy keeps the diagonal responses in the inversion when they contain useful 3D information, but automatically reduces their influence when they are erratic or near the noise level. In cases where some diagonal data are clearly unusable at particular sites or periods, their errors can be further inflated or the affected entries can be omitted altogether. At present we consider only the data-misfit objective
+This strategy retains the diagonal responses when they contain useful 3D information, but automatically reduces their influence when they are erratic or near the noise level. When diagonal data are clearly unusable at particular sites or periods, their errors can be further inflated or the affected entries can be omitted altogether. In this work we consider the data-misfit objective
 \begin{equation}
 \Phi_d(m) = \frac{1}{2}\|W_d\Delta d\|^2=\frac{1}{2}\sum_\omega \Delta d^H W_d^H W_d\Delta d,
 \end{equation}
@@ -188,11 +188,11 @@ whose gradient with respect to the model parameter is given by
   =&\Re\sum_\omega \sum_p \underbrace{-\Delta d^H W_d^H W_d\frac{\partial d^{\mathrm{cal}}}{\partial u^p}}_{(s^p)^H} A^{-1}(m)\frac{\partial A(m)}{\partial m}u^p.
   \end{aligned}
 \end{equation}
-Let us define $(v^p)^H = (s^p)^H A(m)^{-1}$, that is,
+Define $(v^p)^H = (s^p)^H A(m)^{-1}$, that is,
 \begin{equation}\label{eq:adj}
 v^p = A^{-H}(m) s^p \quad\Leftrightarrow\quad A^H(m) v^p = s^p.
 \end{equation}
-The gradient of the misfit w.r.t. $m$ becomes
+The gradient of the misfit with respect to $m$ becomes
 \begin{equation}
 \frac{\partial \Phi_d}{\partial m}=\Re\sum_\omega \sum_p (v^p)^H\frac{\partial A(m)}{\partial m}u^p
 =\Re \sum_\omega \sum_p \overline{v^p}^T \frac{\partial A(m)}{\partial m} u^p,
@@ -203,7 +203,7 @@ For the isotropic case, using
 \begin{equation}
   \frac{\partial A(m)}{\partial \sigma}=\frac{\partial }{\partial \sigma}\begin{bmatrix}
     -\sigma &\nabla\times \\
-    \nabla\times & -i\omega\mu
+    \nabla\times & i\omega\mu
   \end{bmatrix}=\begin{bmatrix}
   -1 & 0\\
   0 & 0
@@ -241,8 +241,7 @@ These expressions show that the gradients are available once the forward and adj
 \begin{equation}\label{eq:adjconj}
 A^T(m) \overline{v^p}=\overline{s^p}.
 \end{equation}
-Because $A^T(m)=A(m)$ (the discrete curl–curl operator is symmetric), the same geometrical multigrid solver can be used to efficiently compute the conjugate of the adjoint field $v^p$, provided that the source term $\overline{s^p}$ can be constructed.
-The right‑hand side of equation~\eqref{eq:adjconj} becomes
+Because $A^T(m)=A(m)$ for the symmetric discrete curl--curl operator, the same geometrical multigrid solver can be used to compute the conjugate of the adjoint field $v^p$, provided that the source term $\overline{s^p}$ can be constructed. The right-hand side of equation~\eqref{eq:adjconj} becomes
 \begin{equation}
   \begin{aligned}
   \overline{s^p}=&-\overline{(\Delta d^H W_d^H W_d \frac{\partial d^{\mathrm{cal}}}{\partial u^p})^H}
@@ -410,25 +409,28 @@ For polarisation $p=2$,
 \end{equation}
 All other field components have zero direct data source; the remaining components are coupled through the adjoint field equation.
 
-The effective source term in equation~\eqref{eq:fwd} is generated by the prescribed 1D boundary field $u_{\mathrm{bc}}^p$ after elimination of the fixed boundary values. Equivalently, the total field $u_{\mathrm{tot}}^p = u_{\mathrm{bc}}^p + u^p$ satisfies the homogeneous MT equation with the required boundary conditions, whereas the interior correction field solves the reduced linear system used by the matrix‑free multigrid solver. In practice, we perform electromagnetic modelling with the matrix‑free multigrid method, in which the electric field is computed directly and the magnetic field is then recovered from the electric field. The adjoint equation~\eqref{eq:adj} resembles the forward equation~\ref{eq:curlcurl}
+The effective source term in equation~\eqref{eq:fwd} is generated by the prescribed 1D boundary field $u_{\mathrm{bc}}^p$ after elimination of the fixed boundary values. Equivalently, the total field $u_{\mathrm{tot}}^p = u_{\mathrm{bc}}^p + u^p$ satisfies the homogeneous MT equation with the required boundary conditions, whereas the interior correction field solves the reduced linear system used by the matrix-free multigrid solver. In practice, electromagnetic modelling is performed with the matrix-free multigrid method: the electric field is computed directly and the magnetic field is then recovered from it. The adjoint equation~\eqref{eq:adj} has the same structure as the forward equation~\eqref{eq:curlcurl},
 \begin{equation}
-\nabla\times\mu_r^{-1} \nabla \times \overline{v_E^p} - i\omega\mu_0\sigma \overline{v_E^p} = \nabla\times\mu_r^{-1} \overline{s_H^p} + i\omega\mu_0 \overline{s_E^p},
+\nabla\times\mu_r^{-1} \nabla \times \overline{v_E^p} + i\omega\mu_0\sigma \overline{v_E^p} = \nabla\times\mu_r^{-1} \overline{s_H^p} - i\omega\mu_0 \overline{s_E^p},
 \end{equation}
 where we denote the adjoint field by $\overline{v^p}=(\overline{v_E^p}, \overline{v_H^p})^T$ and the adjoint source by $\overline{s^p}=(\overline{s_E^p}, \overline{s_H^p})^T$.
 
 \section{MPI parallelisation over frequencies}
 
-Frequency‑domain MT modelling and inversion are naturally parallel over frequency because, for a fixed conductivity model, the forward and adjoint solves at different angular frequencies are independent. A straightforward approach is therefore to distribute frequencies across MPI ranks. However, the computational cost generally varies with frequency because the number of multigrid iterations, coarse‑grid convergence behaviour, and boundary‑condition effects are frequency dependent. A static partition of the frequencies may then lead to poor load balance, with some ranks finishing early and waiting idle while others continue to solve the most expensive frequencies.
+Frequency-domain MT modelling and inversion are naturally parallel over frequency. For a fixed conductivity model, the forward and adjoint problems at different angular frequencies are independent, so they can be assigned to different MPI ranks with little communication. The main complication is load balance: low and high frequencies may require different numbers of multigrid iterations, so a static partition can leave some ranks idle while others continue solving expensive frequencies.
 
-To improve parallel efficiency, we adopt a dynamic scheduling strategy in which frequencies are treated as independent tasks managed by a master–worker MPI pattern. Rank 0 stores the queue of frequencies to be processed, while the remaining ranks repeatedly receive one frequency, perform the required modelling work, and return the corresponding response. As soon as a worker finishes, rank 0 assigns it the next unprocessed frequency. This dynamic work allocation substantially reduces idle time and is particularly effective when the per‑frequency runtime is heterogeneous.
+\texttt{libcMT} therefore uses a simple dynamic master--worker strategy. Rank 0 keeps a queue of unprocessed frequencies. Each worker receives one frequency, solves the two source polarisations, forms the impedance tensor, and returns the result. During inversion, the same task also includes the residual calculation, adjoint solves, and the frequency-local contributions to the objective function and gradient. When a worker finishes, rank 0 immediately assigns the next frequency. This keeps the ranks busy even when the per-frequency runtime is heterogeneous.
 
-This frequency‑level decomposition is consistent with the parallelisation strategy documented for ModEM, which is described in the literature as enabling concurrent computations of different frequencies and source polarisations \citep{EgbertKelbert2012,KelbertEtAl2014,GrayverEtAl2015}. However, we are not aware of a published source that explicitly states that ModEM uses the same dynamic master–worker load‑balancing scheme outlined here. The present implementation should therefore be viewed as a natural load‑balanced extension of the frequency‑parallel approach used in ModEM, rather than as a claim of strict algorithmic identity.
+The reduction step is straightforward because the objective and gradient are sums over frequency:
+\begin{equation}
+  \Phi(m) = \sum_{i=1}^{N_f}\phi_i, \qquad
+  g(m) = \sum_{i=1}^{N_f}g_i .
+\end{equation}
+Rank 0 accumulates these frequency-local quantities and then performs the model update. The amount of communication is small compared with the cost of the field solves: common data such as the mesh, receiver geometry, and conductivity model are broadcast once per inversion iteration, whereas task messages need only contain a frequency index and the returned response or gradient contribution.
 
-In MT forward modelling, each task consists of solving the two source polarisations at one frequency and then assembling the impedance tensor. In inversion, the same decomposition can be used at every optimisation step: each worker evaluates the forward fields, computes the data residuals for its assigned frequency, solves the corresponding adjoint problems, and returns the frequency‑local contributions to the objective function and gradient. Rank 0 then accumulates these contributions over all frequencies and updates the model. Because the total objective and gradient are sums over frequency, this parallel reduction is exact and requires only a modest amount of communication compared with the cost of the field solves.
+This design follows the same broad frequency-parallel philosophy used in established MT inversion software such as ModEM \citep{EgbertKelbert2012,KelbertEtAl2014} and in parallel 3D inversion studies \citep{GrayverEtAl2015}, but uses dynamic scheduling to reduce idle time when the frequency costs are uneven. If individual frequencies become very cheap, several frequencies can be grouped into one task to amortise MPI overhead. For large 3D solves, assigning one frequency at a time usually gives better load balance.
 
-Several implementation details are important for efficiency. First, the mesh, material properties that remain fixed during a solve, receiver geometry, and other read‑only survey information should be broadcast once at the beginning rather than sent with every task. Second, each task message should contain only lightweight metadata, such as the frequency index and value, while the returned result should include the same index so that responses can be reassembled in the original order. Third, if individual frequencies become very cheap, multiple frequencies can be grouped into a small batch to amortise MPI communication overhead. In contrast, when runtime variability is large, assigning one frequency at a time usually gives the best load balance.
-
-Figure~\ref{fig:mpi-frequency-scheduling} illustrates the corresponding master–worker workflow. Expensive and inexpensive frequencies are interleaved automatically because each worker receives a new task as soon as it becomes idle, rather than being assigned a fixed subset of frequencies at the start.
+Figure~\ref{fig:mpi-frequency-scheduling} summarises the workflow. At each inversion iteration, the current model is shared by all ranks; the scheduler then assigns frequencies dynamically, workers return frequency-local objective and gradient terms, and rank 0 performs the reduction and model update.
 
 \begin{figure}[t]
 \centering
@@ -438,67 +440,54 @@ Figure~\ref{fig:mpi-frequency-scheduling} illustrates the corresponding master�
 \centering
 \setlength{\tabcolsep}{5pt}
 \renewcommand{\arraystretch}{1.25}
-\textbf{MT inversion with dynamic MPI scheduling over many iterations}\\[0.5em]
+\textbf{MT inversion with dynamic MPI scheduling}\\[0.5em]
 \begin{tabular}{c}
 \fbox{\begin{minipage}{0.88\linewidth}\centering
-\textbf{Iteration $k$}: current conductivity model $m^{(k)}$ is broadcast to all workers
-\end{minipage}}\\[0.8em]
-$\Downarrow$\\[0.4em]
+\textbf{Iteration $k$}: broadcast current model $m^{(k)}$
+\end{minipage}}\\[0.7em]
+$\Downarrow$\\[0.3em]
 \fbox{\begin{minipage}{0.88\linewidth}\centering
-\textbf{Rank 0 (scheduler)} keeps a queue of frequencies $\{\omega_1,\omega_2,\ldots,\omega_{N_f}\}$ and dynamically assigns the next frequency to the first idle worker
-\end{minipage}}\\[0.8em]
-$\Downarrow$\\[0.4em]
+\textbf{Rank 0}: keep frequency queue $\{\omega_1,\omega_2,\ldots,\omega_{N_f}\}$ and assign the next frequency to the first idle worker
+\end{minipage}}\\[0.7em]
+$\Downarrow$\\[0.3em]
 \begin{tabular}{c c c}
 \fbox{\begin{minipage}{0.26\linewidth}\centering
 \textbf{Worker 1}\\
-get $\omega_i$\\
-forward solve\\
-XY and YX modes\\
-residual and adjoint solves\\
+solve $\omega_i$\\
 return $\phi_i,\, g_i$
 \end{minipage}}
 &
 \fbox{\begin{minipage}{0.26\linewidth}\centering
 \textbf{Worker 2}\\
-get $\omega_j$\\
-forward solve\\
-XY and YX modes\\
-residual and adjoint solves\\
+solve $\omega_j$\\
 return $\phi_j,\, g_j$
 \end{minipage}}
 &
 \fbox{\begin{minipage}{0.26\linewidth}\centering
 \textbf{Worker $p$}\\
-get $\omega_\ell$\\
-forward solve\\
-XY and YX modes\\
-residual and adjoint solves\\
+solve $\omega_\ell$\\
 return $\phi_\ell,\, g_\ell$
 \end{minipage}}
-\\[0.4em]
-$\updownarrow$ & $\updownarrow$ & $\updownarrow$ \\
-\multicolumn{3}{c}{idle workers immediately receive the next unfinished frequency, so long frequencies do not stall the whole job}
-\end{tabular}\\[0.9em]
-$\Downarrow$\\[0.4em]
+\\[0.35em]
+\multicolumn{3}{c}{idle workers immediately receive new frequencies}
+\end{tabular}\\[0.8em]
+$\Downarrow$\\[0.3em]
 \fbox{\begin{minipage}{0.88\linewidth}\centering
-\textbf{Global reduction on rank 0}: \\[0.2em]
-$\Phi(m^{(k)}) = \sum_{i=1}^{N_f} \phi_i$, \qquad
-$g(m^{(k)}) = \sum_{i=1}^{N_f} g_i$
-\end{minipage}}\\[0.8em]
-$\Downarrow$\\[0.4em]
+\textbf{Rank 0 reduction}: $\Phi(m^{(k)})=\sum_i\phi_i$, \quad
+$g(m^{(k)})=\sum_i g_i$
+\end{minipage}}\\[0.7em]
+$\Downarrow$\\[0.3em]
 \fbox{\begin{minipage}{0.88\linewidth}\centering
-\textbf{Model update}: line search or quasi‑Newton step produces $m^{(k+1)}$; stop when the misfit or gradient tolerance is satisfied, otherwise continue with iteration $k+1$
-\end{minipage}}\\[0.8em]
-$\textit{Loop to the next inversion iteration until convergence}$\\[-0.1em]
-repeat until convergence
+\textbf{Model update}: produce $m^{(k+1)}$ and continue until convergence
+\end{minipage}}
 \end{tabular}
 \end{minipage}%
 }
-\caption{Schematic of MT inversion with dynamic MPI parallelisation over frequencies. At each inversion iteration, the current model is shared by all ranks. Rank 0 acts as a scheduler and dynamically distributes frequencies to workers. Each worker solves the forward and adjoint problems for its assigned frequency, forms the frequency‑local objective and gradient contributions, and returns them to rank 0. The global objective and gradient are then reduced over all frequencies to update the conductivity model, and the process is repeated for many inversion iterations.}
+\caption{Dynamic MPI scheduling over frequencies. Rank 0 assigns frequencies to workers as they become available, reducing idle time when individual frequencies have different runtimes.}
 \label{fig:mpi-frequency-scheduling}
 \end{figure}
 
-For clarity, the dynamic scheduling strategy may be summarised by the following pseudocode:
+For clarity, the same strategy can be expressed as the following pseudocode:
 
 \begin{center}
 \fbox{%
@@ -507,42 +496,40 @@ For clarity, the dynamic scheduling strategy may be summarised by the following 
 \textbf{Algorithm: Dynamic MPI scheduling over frequencies}\par
 \medskip
 \textbf{Master rank 0:}\par
-1. Read the frequency list and broadcast common mesh and survey data.\par
-2. Send one initial frequency to each worker rank.\par
-3. While unprocessed frequencies remain, receive a completed result from any worker, store its frequency index, and immediately send that worker the next available frequency.\par
-4. When no frequencies remain, send a stop message to each worker after its final result is received.\par
+1. Broadcast mesh, survey data, and the current model.\par
+2. Send one initial frequency to each worker.\par
+3. When a worker returns a result, store its frequency index and send the next unfinished frequency.\par
+4. After all frequencies are complete, send stop messages and sum the returned objective and gradient contributions.\par
 \medskip
 \textbf{Worker rank $p>0$:}\par
-1. Receive one frequency index and value from rank 0.\par
-2. Solve the forward problem for that frequency; for inversion also solve the adjoint problem and form the local objective and gradient contributions.\par
-3. Send the result and its frequency index back to rank 0.\par
-4. Repeat until a stop message is received.\par
-\medskip
-\textbf{Reduction step:} Rank 0 sums the frequency‑local objective and gradient contributions and updates the conductivity model at the current inversion iteration.
+1. Receive a frequency index and value from rank 0.\par
+2. Solve the forward problem; during inversion, also solve the adjoint problem and form the local objective and gradient terms.\par
+3. Return the result and frequency index to rank 0.\par
+4. Repeat until a stop message is received.
 \end{minipage}%
 }
 \end{center}
 
-This frequency‑parallel MPI strategy is complementary to shared‑memory parallelism inside each solve. A practical configuration on modern clusters is therefore hybrid parallelism: MPI distributes frequencies dynamically across nodes, while OpenMP threads or threaded linear‑algebra kernels are used within each rank for the multigrid smoothing, residual evaluation, and field updates. Such a design preserves the simplicity of frequency‑level decomposition, avoids global synchronisation after each frequency, and provides good strong‑scaling behaviour for large MT modelling and inversion runs.
+Frequency-level MPI parallelism is also compatible with shared-memory parallelism inside each solve. In a hybrid configuration, MPI distributes frequencies across ranks, while OpenMP threads or threaded kernels accelerate multigrid smoothing, residual evaluation, and field updates within each rank.
 
 \section{Numerical examples}
 
-This section should demonstrate both the numerical correctness of the implementation and the computational motivation for developing \texttt{libcMT}. The examples should therefore be presented in a sequence that moves from verification to performance evaluation and finally to inversion behaviour.
+The numerical examples are designed to demonstrate both the correctness of the implementation and the computational motivation for \texttt{libcMT}. The presentation proceeds from forward-modelling verification to solver performance, frequency-parallel scaling, and finally end-to-end inversion behaviour.
 
 \subsection{Example 1: Forward-modelling verification}
 
-The first example should verify the accuracy of the matrix-free GMG forward solver on a model for which reference responses are available. A practical choice is a 1D layered-earth model or a simple 3D conductivity anomaly embedded in a layered background. For each test frequency, the impedances computed by \texttt{libcMT} should be compared with either analytical 1D MT responses or responses from a trusted reference code. The purpose of this example is to confirm that the matrix-free discretisation, boundary treatment, and field-to-impedance extraction are implemented correctly.
+The first example verifies the accuracy of the matrix-free GMG forward solver on a model for which reference responses are available. Suitable tests include a 1D layered-earth model, for which semi-analytical MT responses can be computed, or a simple 3D conductivity anomaly embedded in a layered background and compared with a trusted reference code. For each test frequency, the impedances computed by \texttt{libcMT} are compared with the reference solution to check the matrix-free discretisation, boundary treatment, and field-to-impedance extraction.
 
-The corresponding results should be presented as follows:
+The corresponding results are most clearly reported using:
 \begin{itemize}
   \item A figure showing apparent resistivity and phase curves for $Z_{xy}$ and $Z_{yx}$, comparing \texttt{libcMT} with the reference solution.
   \item A table reporting relative errors of the complex impedances over the tested frequency range.
-  \item A short discussion of mesh resolution, boundary distance, and convergence tolerance, so that the source of the observed accuracy is clear.
+  \item A short discussion of mesh resolution, boundary distance, and convergence tolerance, so that the source of the observed accuracy is explicit.
 \end{itemize}
 
 \subsection{Example 2: Solver efficiency and memory consumption}
 
-The second example should quantify the benefit of the matrix-free GMG solver itself. This test should use a sequence of increasingly refined 3D meshes for the same conductivity model and compare \texttt{libcMT} against a baseline iterative method such as a Krylov solver with a conventional sparse-matrix assembly. The main goal is to show how runtime, iteration count, and memory usage scale as the problem size grows.
+The second example quantifies the benefit of the matrix-free GMG solver. This test uses a sequence of increasingly refined 3D meshes for the same conductivity model and compares \texttt{libcMT} with a baseline iterative method, such as a Krylov solver applied to a conventionally assembled sparse matrix. The main goal is to show how runtime, iteration count, and memory usage scale as the problem size grows.
 
 The recommended presentation order is:
 \begin{itemize}
@@ -554,9 +541,9 @@ The recommended presentation order is:
 
 \subsection{Example 3: Parallel scaling over frequencies}
 
-The third example should isolate the MPI scheduling strategy. Using a realistic multi-frequency MT survey, the example should compare static frequency partitioning with the proposed dynamic master-worker scheduling. Because the cost per frequency is generally heterogeneous, this example should report both parallel efficiency and load-balance indicators.
+The third example isolates the MPI scheduling strategy. Using a realistic multi-frequency MT survey, this example compares static frequency partitioning with the proposed dynamic master--worker scheduling. Because the cost per frequency is generally heterogeneous, the example reports both parallel efficiency and load-balance indicators.
 
-The results should be organised as follows:
+The results are organised as follows:
 \begin{itemize}
   \item A table summarising the number of frequencies, MPI ranks, and the range of single-frequency runtimes.
   \item A strong-scaling plot showing total wall-clock time versus number of MPI ranks.
@@ -564,15 +551,15 @@ The results should be organised as follows:
   \item A short discussion explaining when batching multiple frequencies per task is beneficial and when one-frequency tasks are preferable.
 \end{itemize}
 
-\subsection{Example 4: Synthetic inversion test to investigate importance of parametrization}
+\subsection{Example 4: Synthetic inversion test and model parametrisation}
 
-The final example should demonstrate the complete inversion workflow on a synthetic 3D model for which the true conductivity structure is known. A suitable test is one or two conductive bodies embedded in a resistive host, optionally with a layered background and a VTI anisotropic zone in part of the model. Synthetic MT responses should be generated at multiple sites and over a sufficiently broad frequency band, and realistic Gaussian noise should be added using the same component-dependent error floors introduced in the data-weighting strategy. The inversion should start from a smooth background model and use the adjoint-based data-misfit gradient defined above. In this way, the example shows not only that \texttt{libcMT} can solve isolated forward problems efficiently, but also that it remains stable and practical when embedded in a repeated inversion loop.
+The final example demonstrates the complete inversion workflow on a synthetic 3D model for which the true conductivity structure is known. A suitable test contains one or two conductive bodies embedded in a resistive host, optionally with a layered background and a VTI anisotropic zone in part of the model. Synthetic MT responses are generated at multiple sites over a broad frequency band, and realistic Gaussian noise is added using the component-dependent error floors introduced in the data-weighting strategy. The inversion starts from a smooth background model and uses the adjoint-based data-misfit gradient derived above. This example shows not only that \texttt{libcMT} can solve isolated forward problems efficiently, but also that the solver remains stable and practical inside a repeated inversion loop.
 
-This example is also the natural place to investigate the influence of model parametrization. A useful comparison is to perform separate inversions with an isotropic model, a full VTI model parametrised by $(\sigma_h,\sigma_v)$, and a reduced anisotropic parametrisation such as $(\sigma_h,\sigma_v/\sigma_h)$ or $(\rho_h,\lambda)$ with $\lambda=\sqrt{\rho_v/\rho_h}$. Because $\rho=1/\sigma$, this definition is equivalent to $\lambda=\sqrt{\sigma_h/\sigma_v}$ when written in conductivity variables. The goal is not merely to compare final misfit values, but to determine which parametrisation yields the best balance between recoverability, stability, and physical interpretability under realistic noise.
+This example also investigates the influence of model parametrisation. A useful comparison is to perform separate inversions with an isotropic model, a full VTI model parametrised by $(\sigma_h,\sigma_v)$, and a reduced anisotropic parametrisation such as $(\sigma_h,\sigma_v/\sigma_h)$ or $(\rho_h,\lambda)$ with $\lambda=\sqrt{\rho_v/\rho_h}$. Because $\rho=1/\sigma$, this definition is equivalent to $\lambda=\sqrt{\sigma_h/\sigma_v}$ in conductivity variables. The goal is not merely to compare final misfit values, but to determine which parametrisation gives the best balance between recoverability, stability, and physical interpretability under realistic noise.
 
-Several issues should be examined explicitly. First, one should assess whether the horizontal conductivity is recovered more reliably than the vertical conductivity, which is often expected in MT because the data are typically more sensitive to horizontal current flow. Second, one should examine parameter cross-talk: for example, whether errors in anisotropy are absorbed into the background conductivity or whether $\sigma_h$ and $\sigma_v$ trade off against one another in poorly resolved regions. Third, the inversion should be tested for robustness with respect to the starting model, because an apparently good final fit can still correspond to an unstable or non-unique anisotropic reconstruction. A reduced parametrisation may prove advantageous if it suppresses unnecessary degrees of freedom while still capturing the dominant anisotropic behaviour.
+Several issues are examined explicitly. First, the recovered horizontal and vertical conductivities are compared, since MT data are often more sensitive to horizontal current flow. Second, parameter cross-talk is assessed by checking whether errors in anisotropy are absorbed into the background conductivity or whether $\sigma_h$ and $\sigma_v$ trade off against one another in poorly resolved regions. Third, the inversion is tested for robustness with respect to the starting model, because a good final fit can still correspond to an unstable or non-unique anisotropic reconstruction. A reduced parametrisation may be advantageous if it suppresses unnecessary degrees of freedom while still capturing the dominant anisotropic behaviour.
 
-To make the comparison convincing, the interpretation should not rely on the objective function alone. It is more informative to compare reconstruction quality in the target region, recovery of anomaly geometry and amplitude, the depth dependence of anisotropy, and the spatial distribution of data residuals. If computational cost differs significantly between parametrisations, the paper should also report whether the more expressive model leads to materially slower convergence or to a larger number of forward and adjoint solves. This allows the reader to judge whether the additional model complexity is justified by improved imaging performance.
+The interpretation should not rely on the objective function alone. It is more informative to compare reconstruction quality in the target region, recovery of anomaly geometry and amplitude, the depth dependence of anisotropy, and the spatial distribution of data residuals. If computational cost differs significantly between parametrisations, the comparison should also report whether the more expressive model leads to slower convergence or to a larger number of forward and adjoint solves. These diagnostics allow the reader to judge whether the additional model complexity is justified by improved imaging performance.
 
 A clear presentation sequence is:
 \begin{itemize}
@@ -585,16 +572,16 @@ A clear presentation sequence is:
 
 \subsection{Recommended presentation schedule}
 
-For a concise paper, the numerical section should be presented in the following order:
+For a concise paper, the numerical section can be presented in the following order:
 \begin{enumerate}
   \item Verify the forward solver accuracy.
   \item Demonstrate matrix-free GMG efficiency and reduced memory usage.
   \item Demonstrate the benefit of dynamic MPI scheduling over frequencies.
   \item Demonstrate end-to-end inversion on a synthetic 3D example.
 \end{enumerate}
-This order is important because it lets the reader first trust the physics, then assess the solver contribution, then assess the parallelisation strategy, and finally judge the complete inversion capability.
+This order lets the reader first assess the physics, then the solver contribution, then the parallelisation strategy, and finally the complete inversion capability.
 
-If the paper must remain short, Examples 1 and 4 should appear in the main text, while the detailed solver and scaling tables for Examples 2 and 3 can be moved to supplementary material.
+If the paper must remain short, Examples 1 and 4 can remain in the main text, while the detailed solver and scaling tables for Examples 2 and 3 can be moved to supplementary material.
 
 
 \section{Conclusion}

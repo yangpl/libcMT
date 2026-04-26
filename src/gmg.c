@@ -19,7 +19,7 @@ int v2;//number of post-smoothing
 int lmax;//maximum number of levels for switching between fine and coarse grid
 double tol;//tolerance for convergence
 double rnorm0, rnorm;//norm of residual vector r
-complex I_omega_mu0;//frequency omega=2*PI*freqx
+complex I_omega_mu0;//-i*omega*mu0 for the \partial_t -> i*omega Fourier convention
 emf_t *emf_;
 gmg_t *gmg;
 
@@ -1822,6 +1822,7 @@ void gmg_init(emf_t *emf, int ifreq)
   if(emf->verb) printf("----------- gmg_init ---------------\n");
   emf_ = emf;
   I_omega_mu0 = I*emf->omegas[ifreq]*mu0;//Fourier convention: \partial_t->-I*omega
+  I_omega_mu0 *= -1;//change convention to \partial_t -> I*omega
   verb = emf->verb; /* 1 prints progress messages, 0 runs quietly. */
   if(!getparint("cycleopt", &cycleopt)) cycleopt = 2;/* 1=V cycle; 2=F cycle; 3=W cycle */
   if(!getparint("ncycle", &ncycle)) ncycle = 100;/* number of multigrid cycles */  
