@@ -34,6 +34,7 @@ void extract_electric_fields(int ifreq, int ipolar, float _Complex ***E)
   int i, j, k;
   int ip1, jp1, kp1;
   int i1, i2, i3;
+  double x1p, x2p, x3p;
   double w1, w2, w3;
   int kk;
   complex s;
@@ -45,17 +46,20 @@ void extract_electric_fields(int ifreq, int ipolar, float _Complex ***E)
 
   kk = 0;
   for(i3=0; i3<emf_->nz; i3++){
-    k = find_index(gmg[0].n3+1, gmg[0].x3, emf_->x3[i3]);
+    x3p = 0.5*(emf_->x3node[i3] + emf_->x3node[i3+1]);
+    k = find_index(gmg[0].n3+1, gmg[0].x3, x3p);
     kp1 = MIN(k + 1, gmg[0].n3);
-    w3 = (emf_->x3[i3] - gmg[0].x3[k]) / gmg[0].d3s[k];
+    w3 = (x3p - gmg[0].x3[k]) / gmg[0].d3s[k];
     for(i2=0; i2<emf_->ny; i2++){
-      j = find_index(gmg[0].n2+1, gmg[0].x2, emf_->x2[i2]);
+      x2p = 0.5*(emf_->x2node[i2] + emf_->x2node[i2+1]);
+      j = find_index(gmg[0].n2+1, gmg[0].x2, x2p);
       jp1 = MIN(j + 1, gmg[0].n2);
-      w2 = (emf_->x2[i2] - gmg[0].x2[j]) / gmg[0].d2s[j];
+      w2 = (x2p - gmg[0].x2[j]) / gmg[0].d2s[j];
       for(i1=0; i1<emf_->nx; i1++){
-	i = find_index(gmg[0].n1, gmg[0].x1s, emf_->x1[i1]);
+        x1p = 0.5*(emf_->x1node[i1] + emf_->x1node[i1+1]);
+	i = find_index(gmg[0].n1, gmg[0].x1s, x1p);
 	ip1 = MIN(i + 1, gmg[0].n1-1);
-	w1 = (emf_->x1[i1] - gmg[0].x1s[i]) / gmg[0].d1[ip1];
+	w1 = (x1p - gmg[0].x1s[i]) / gmg[0].d1[ip1];
 	
 	s = 0;
 	s += Ex[k][j][i] * (1. - w1) * (1. - w2) * (1. - w3);
@@ -72,17 +76,20 @@ void extract_electric_fields(int ifreq, int ipolar, float _Complex ***E)
     }
   }
   for(i3=0; i3<emf_->nz; i3++){
-    k = find_index(gmg[0].n3+1, gmg[0].x3, emf_->x3[i3]);
+    x3p = 0.5*(emf_->x3node[i3] + emf_->x3node[i3+1]);
+    k = find_index(gmg[0].n3+1, gmg[0].x3, x3p);
     kp1 = MIN(k + 1, gmg[0].n3);
-    w3 = (emf_->x3[i3] - gmg[0].x3[k]) / gmg[0].d3s[k];
+    w3 = (x3p - gmg[0].x3[k]) / gmg[0].d3s[k];
     for(i2=0; i2<emf_->ny; i2++){
-      j = find_index(gmg[0].n2+1, gmg[0].x2s, emf_->x2[i2]);
+      x2p = 0.5*(emf_->x2node[i2] + emf_->x2node[i2+1]);
+      j = find_index(gmg[0].n2+1, gmg[0].x2s, x2p);
       jp1 = MIN(j + 1, gmg[0].n2-1);
-      w2 = (emf_->x2[i2] - gmg[0].x2s[j]) / gmg[0].d2[jp1];
+      w2 = (x2p - gmg[0].x2s[j]) / gmg[0].d2[jp1];
       for(i1=0; i1<emf_->nx; i1++){
-	i = find_index(gmg[0].n1, gmg[0].x1, emf_->x1[i1]);
+        x1p = 0.5*(emf_->x1node[i1] + emf_->x1node[i1+1]);
+	i = find_index(gmg[0].n1, gmg[0].x1, x1p);
 	ip1 = MIN(i + 1, gmg[0].n1);
-	w1 = (emf_->x1[i1] - gmg[0].x1[i]) / gmg[0].d1s[i];
+	w1 = (x1p - gmg[0].x1[i]) / gmg[0].d1s[i];
 	
 	s = 0;
 	s += Ey[k][j][i] * (1. - w1) * (1. - w2) * (1. - w3);
@@ -104,17 +111,20 @@ void extract_electric_fields(int ifreq, int ipolar, float _Complex ***E)
     double w000, w001, w010, w011, w100, w101, w110, w111;
     int im1, ip1m1, jm1, jp1m1;
 
-    k = find_index(gmg[0].n3+1, gmg[0].x3s, emf_->x3[i3]);
+    x3p = 0.5*(emf_->x3node[i3] + emf_->x3node[i3+1]);
+    k = find_index(gmg[0].n3+1, gmg[0].x3s, x3p);
     kp1 = MIN(k + 1, gmg[0].n3-1);
-    w3 = (emf_->x3[i3] - gmg[0].x3s[k]) / gmg[0].d3[k];
+    w3 = (x3p - gmg[0].x3s[k]) / gmg[0].d3[k];
     for(i2=0; i2<emf_->ny; i2++){
-      j = find_index(gmg[0].n2+1, gmg[0].x2, emf_->x2[i2]);
+      x2p = 0.5*(emf_->x2node[i2] + emf_->x2node[i2+1]);
+      j = find_index(gmg[0].n2+1, gmg[0].x2, x2p);
       jp1 = MIN(j + 1, gmg[0].n2);
-      w2 = (emf_->x2[i2] - gmg[0].x2s[j]) / gmg[0].d2s[jp1];
+      w2 = (x2p - gmg[0].x2s[j]) / gmg[0].d2s[jp1];
       for(i1=0; i1<emf_->nx; i1++){
-	i = find_index(gmg[0].n1, gmg[0].x1, emf_->x1[i1]);
+        x1p = 0.5*(emf_->x1node[i1] + emf_->x1node[i1+1]);
+	i = find_index(gmg[0].n1, gmg[0].x1, x1p);
 	ip1 = MIN(i + 1, gmg[0].n1);
-	w1 = (emf_->x1[i1] - gmg[0].x1[i]) / gmg[0].d1s[i];
+	w1 = (x1p - gmg[0].x1[i]) / gmg[0].d1s[i];
 
 	im1 = MAX(i - 1, 0);
 	ip1m1 = MAX(ip1 - 1, 0);
