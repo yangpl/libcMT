@@ -21,7 +21,7 @@ void extend_model_init(emf_t *emf, int ifreq);
 void extend_model_free(emf_t *emf);
 
 void mt1d_efield_at_boundary(gmg_t *gmg, double freq, int ipolar);
-void extract_mt_data(acq_t *acq, int ifreq, int ipolar, float _Complex ***E);
+void extract_mt_data(acq_t *acq, int ifreq, int ipolar);
 void write_mt_data(acq_t *acq, emf_t *emf, char *fname);
 
 static void allocate_modelling_buffers(acq_t *acq, emf_t *emf, int need_fields)
@@ -98,7 +98,7 @@ static void solve_frequency(acq_t *acq, emf_t *emf, int ifreq, float _Complex *r
     /* Add the boundary field back to the solved perturbation to recover total E. */
     for (i = 0; i < n; ++i) (&gmg[0].u[0][0][0][0])[i] += u_bc[i];//then E=gmg[0].u
     compute_H_from_E(gmg);//then H=gmg[0].f
-    extract_mt_data(acq, ifreq, ipolar, NULL);//set E=NULL to avoid storing E fields
+    extract_mt_data(acq, ifreq, ipolar);
   }
   free1complex(u_bc);
 

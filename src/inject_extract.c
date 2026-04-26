@@ -28,104 +28,22 @@ static double volume_hz(int i, int j, int k)
   return gmg[0].d1s[i]*gmg[0].d2s[j]*gmg[0].d3[k];
 }
 
-void extract_mt_data(acq_t *acq, int ifreq, int ipolar, float _Complex ***E)
+//extract Ex,Ey,Ez fields at all grid points
+void extract_electric_fields(int ifreq, int ipolar, float _Complex ***E)
 {
-  int i, j, k, irec;
+  int i, j, k;
   int ip1, jp1, kp1;
-  double w1, w2, w3;
-  complex s;
-  complex ***Ex = gmg[0].u[0];
-  complex ***Ey = gmg[0].u[1];
-  complex ***Ez = gmg[0].u[2];
-  complex ***Hx = gmg[0].f[0];
-  complex ***Hy = gmg[0].f[1];
-
-  for (irec = 0; irec < acq->nrec; irec++) {
-    i = find_index(gmg[0].n1, gmg[0].x1s, acq->rec_x1[irec]);
-    j = find_index(gmg[0].n2 + 1, gmg[0].x2, acq->rec_x2[irec]);
-    k = find_index(gmg[0].n3 + 1, gmg[0].x3, acq->rec_x3[irec]);
-    ip1 = MIN(i + 1, gmg[0].n1 - 1);
-    jp1 = MIN(j + 1, gmg[0].n2);
-    kp1 = MIN(k + 1, gmg[0].n3);
-    w1 = (acq->rec_x1[irec] - gmg[0].x1s[i]) / gmg[0].d1[ip1];
-    w2 = (acq->rec_x2[irec] - gmg[0].x2[j]) / gmg[0].d2s[j];
-    w3 = (acq->rec_x3[irec] - gmg[0].x3[k]) / gmg[0].d3s[k];
-    s = 0;
-    s += Ex[k][j][i] * (1. - w1) * (1. - w2) * (1. - w3);
-    s += Ex[k][j][ip1] * w1 * (1. - w2) * (1. - w3);
-    s += Ex[k][jp1][i] * (1. - w1) * w2 * (1. - w3);
-    s += Ex[k][jp1][ip1] * w1 * w2 * (1. - w3);
-    s += Ex[kp1][j][i] * (1. - w1) * (1. - w2) * w3;
-    s += Ex[kp1][j][ip1] * w1 * (1. - w2) * w3;
-    s += Ex[kp1][jp1][i] * (1. - w1) * w2 * w3;
-    s += Ex[kp1][jp1][ip1] * w1 * w2 * w3;
-    emf_->d_Ex[ipolar][ifreq][irec] = s;
-
-    i = find_index(gmg[0].n1 + 1, gmg[0].x1, acq->rec_x1[irec]);
-    j = find_index(gmg[0].n2, gmg[0].x2s, acq->rec_x2[irec]);
-    k = find_index(gmg[0].n3 + 1, gmg[0].x3, acq->rec_x3[irec]);
-    ip1 = MIN(i + 1, gmg[0].n1);
-    jp1 = MIN(j + 1, gmg[0].n2 - 1);
-    kp1 = MIN(k + 1, gmg[0].n3);
-    w1 = (acq->rec_x1[irec] - gmg[0].x1[i]) / gmg[0].d1s[i];
-    w2 = (acq->rec_x2[irec] - gmg[0].x2s[j]) / gmg[0].d2[jp1];
-    w3 = (acq->rec_x3[irec] - gmg[0].x3[k]) / gmg[0].d3s[k];
-    s = 0;
-    s += Ey[k][j][i] * (1. - w1) * (1. - w2) * (1. - w3);
-    s += Ey[k][j][ip1] * w1 * (1. - w2) * (1. - w3);
-    s += Ey[k][jp1][i] * (1. - w1) * w2 * (1. - w3);
-    s += Ey[k][jp1][ip1] * w1 * w2 * (1. - w3);
-    s += Ey[kp1][j][i] * (1. - w1) * (1. - w2) * w3;
-    s += Ey[kp1][j][ip1] * w1 * (1. - w2) * w3;
-    s += Ey[kp1][jp1][i] * (1. - w1) * w2 * w3;
-    s += Ey[kp1][jp1][ip1] * w1 * w2 * w3;
-    emf_->d_Ey[ipolar][ifreq][irec] = s;
-
-    i = find_index(gmg[0].n1 + 1, gmg[0].x1, acq->rec_x1[irec]);
-    j = find_index(gmg[0].n2, gmg[0].x2s, acq->rec_x2[irec]);
-    k = find_index(gmg[0].n3, gmg[0].x3s, acq->rec_x3[irec]);
-    ip1 = MIN(i + 1, gmg[0].n1);
-    jp1 = MIN(j + 1, gmg[0].n2 - 1);
-    kp1 = MIN(k + 1, gmg[0].n3);
-    w1 = (acq->rec_x1[irec] - gmg[0].x1[i]) / gmg[0].d1s[i];
-    w2 = (acq->rec_x2[irec] - gmg[0].x2s[j]) / gmg[0].d2[jp1];
-    w3 = (acq->rec_x3[irec] - gmg[0].x3s[k]) / gmg[0].d3[kp1];
-    s = 0;
-    s += Hx[k][j][i] * (1. - w1) * (1. - w2) * (1. - w3);
-    s += Hx[k][j][ip1] * w1 * (1. - w2) * (1. - w3);
-    s += Hx[k][jp1][i] * (1. - w1) * w2 * (1. - w3);
-    s += Hx[k][jp1][ip1] * w1 * w2 * (1. - w3);
-    s += Hx[kp1][j][i] * (1. - w1) * (1. - w2) * w3;
-    s += Hx[kp1][j][ip1] * w1 * (1. - w2) * w3;
-    s += Hx[kp1][jp1][i] * (1. - w1) * w2 * w3;
-    s += Hx[kp1][jp1][ip1] * w1 * w2 * w3;
-    emf_->d_Hx[ipolar][ifreq][irec] = s;
-
-    i = find_index(gmg[0].n1, gmg[0].x1s, acq->rec_x1[irec]);
-    j = find_index(gmg[0].n2 + 1, gmg[0].x2, acq->rec_x2[irec]);
-    k = find_index(gmg[0].n3, gmg[0].x3s, acq->rec_x3[irec]);
-    ip1 = MIN(i + 1, gmg[0].n1 - 1);
-    jp1 = MIN(j + 1, gmg[0].n2);
-    kp1 = MIN(k + 1, gmg[0].n3 - 1);
-    w1 = (acq->rec_x1[irec] - gmg[0].x1s[i]) / gmg[0].d1[ip1];
-    w2 = (acq->rec_x2[irec] - gmg[0].x2[j]) / gmg[0].d2s[j];
-    w3 = (acq->rec_x3[irec] - gmg[0].x3s[k]) / gmg[0].d3[kp1];
-    s = 0;
-    s += Hy[k][j][i] * (1. - w1) * (1. - w2) * (1. - w3);
-    s += Hy[k][j][ip1] * w1 * (1. - w2) * (1. - w3);
-    s += Hy[k][jp1][i] * (1. - w1) * w2 * (1. - w3);
-    s += Hy[k][jp1][ip1] * w1 * w2 * (1. - w3);
-    s += Hy[kp1][j][i] * (1. - w1) * (1. - w2) * w3;
-    s += Hy[kp1][j][ip1] * w1 * (1. - w2) * w3;
-    s += Hy[kp1][jp1][i] * (1. - w1) * w2 * w3;
-    s += Hy[kp1][jp1][ip1] * w1 * w2 * w3;
-    emf_->d_Hy[ipolar][ifreq][irec] = s;
-  }
-
-  if(E == NULL) return;
-
   int i1, i2, i3;
-  int kk = 0;
+  double w1, w2, w3;
+  int kk;
+  complex s;
+  complex ***Ex, ***Ey, ***Ez;
+  
+  Ex = gmg[0].u[0];
+  Ey = gmg[0].u[1];
+  Ez = gmg[0].u[2];
+
+  kk = 0;
   for(i3=0; i3<emf_->nz; i3++){
     k = find_index(gmg[0].n3+1, gmg[0].x3, emf_->x3[i3]);
     kp1 = MIN(k + 1, gmg[0].n3);
@@ -243,7 +161,103 @@ void extract_mt_data(acq_t *acq, int ifreq, int ipolar, float _Complex ***E)
 
 }
 
+//extract MT data at receiver locations
+void extract_mt_data(acq_t *acq, int ifreq, int ipolar)
+{
+  int i, j, k, irec;
+  int ip1, jp1, kp1;
+  double w1, w2, w3;
+  complex s;
+  complex ***Ex = gmg[0].u[0];
+  complex ***Ey = gmg[0].u[1];
+  complex ***Hx = gmg[0].f[0];
+  complex ***Hy = gmg[0].f[1];
 
+  for (irec = 0; irec < acq->nrec; irec++) {
+    i = find_index(gmg[0].n1, gmg[0].x1s, acq->rec_x1[irec]);
+    j = find_index(gmg[0].n2 + 1, gmg[0].x2, acq->rec_x2[irec]);
+    k = find_index(gmg[0].n3 + 1, gmg[0].x3, acq->rec_x3[irec]);
+    ip1 = MIN(i + 1, gmg[0].n1 - 1);
+    jp1 = MIN(j + 1, gmg[0].n2);
+    kp1 = MIN(k + 1, gmg[0].n3);
+    w1 = (acq->rec_x1[irec] - gmg[0].x1s[i]) / gmg[0].d1[ip1];
+    w2 = (acq->rec_x2[irec] - gmg[0].x2[j]) / gmg[0].d2s[j];
+    w3 = (acq->rec_x3[irec] - gmg[0].x3[k]) / gmg[0].d3s[k];
+    s = 0;
+    s += Ex[k][j][i] * (1. - w1) * (1. - w2) * (1. - w3);
+    s += Ex[k][j][ip1] * w1 * (1. - w2) * (1. - w3);
+    s += Ex[k][jp1][i] * (1. - w1) * w2 * (1. - w3);
+    s += Ex[k][jp1][ip1] * w1 * w2 * (1. - w3);
+    s += Ex[kp1][j][i] * (1. - w1) * (1. - w2) * w3;
+    s += Ex[kp1][j][ip1] * w1 * (1. - w2) * w3;
+    s += Ex[kp1][jp1][i] * (1. - w1) * w2 * w3;
+    s += Ex[kp1][jp1][ip1] * w1 * w2 * w3;
+    emf_->d_Ex[ipolar][ifreq][irec] = s;
+
+    i = find_index(gmg[0].n1 + 1, gmg[0].x1, acq->rec_x1[irec]);
+    j = find_index(gmg[0].n2, gmg[0].x2s, acq->rec_x2[irec]);
+    k = find_index(gmg[0].n3 + 1, gmg[0].x3, acq->rec_x3[irec]);
+    ip1 = MIN(i + 1, gmg[0].n1);
+    jp1 = MIN(j + 1, gmg[0].n2 - 1);
+    kp1 = MIN(k + 1, gmg[0].n3);
+    w1 = (acq->rec_x1[irec] - gmg[0].x1[i]) / gmg[0].d1s[i];
+    w2 = (acq->rec_x2[irec] - gmg[0].x2s[j]) / gmg[0].d2[jp1];
+    w3 = (acq->rec_x3[irec] - gmg[0].x3[k]) / gmg[0].d3s[k];
+    s = 0;
+    s += Ey[k][j][i] * (1. - w1) * (1. - w2) * (1. - w3);
+    s += Ey[k][j][ip1] * w1 * (1. - w2) * (1. - w3);
+    s += Ey[k][jp1][i] * (1. - w1) * w2 * (1. - w3);
+    s += Ey[k][jp1][ip1] * w1 * w2 * (1. - w3);
+    s += Ey[kp1][j][i] * (1. - w1) * (1. - w2) * w3;
+    s += Ey[kp1][j][ip1] * w1 * (1. - w2) * w3;
+    s += Ey[kp1][jp1][i] * (1. - w1) * w2 * w3;
+    s += Ey[kp1][jp1][ip1] * w1 * w2 * w3;
+    emf_->d_Ey[ipolar][ifreq][irec] = s;
+
+    i = find_index(gmg[0].n1 + 1, gmg[0].x1, acq->rec_x1[irec]);
+    j = find_index(gmg[0].n2, gmg[0].x2s, acq->rec_x2[irec]);
+    k = find_index(gmg[0].n3, gmg[0].x3s, acq->rec_x3[irec]);
+    ip1 = MIN(i + 1, gmg[0].n1);
+    jp1 = MIN(j + 1, gmg[0].n2 - 1);
+    kp1 = MIN(k + 1, gmg[0].n3);
+    w1 = (acq->rec_x1[irec] - gmg[0].x1[i]) / gmg[0].d1s[i];
+    w2 = (acq->rec_x2[irec] - gmg[0].x2s[j]) / gmg[0].d2[jp1];
+    w3 = (acq->rec_x3[irec] - gmg[0].x3s[k]) / gmg[0].d3[kp1];
+    s = 0;
+    s += Hx[k][j][i] * (1. - w1) * (1. - w2) * (1. - w3);
+    s += Hx[k][j][ip1] * w1 * (1. - w2) * (1. - w3);
+    s += Hx[k][jp1][i] * (1. - w1) * w2 * (1. - w3);
+    s += Hx[k][jp1][ip1] * w1 * w2 * (1. - w3);
+    s += Hx[kp1][j][i] * (1. - w1) * (1. - w2) * w3;
+    s += Hx[kp1][j][ip1] * w1 * (1. - w2) * w3;
+    s += Hx[kp1][jp1][i] * (1. - w1) * w2 * w3;
+    s += Hx[kp1][jp1][ip1] * w1 * w2 * w3;
+    emf_->d_Hx[ipolar][ifreq][irec] = s;
+
+    i = find_index(gmg[0].n1, gmg[0].x1s, acq->rec_x1[irec]);
+    j = find_index(gmg[0].n2 + 1, gmg[0].x2, acq->rec_x2[irec]);
+    k = find_index(gmg[0].n3, gmg[0].x3s, acq->rec_x3[irec]);
+    ip1 = MIN(i + 1, gmg[0].n1 - 1);
+    jp1 = MIN(j + 1, gmg[0].n2);
+    kp1 = MIN(k + 1, gmg[0].n3 - 1);
+    w1 = (acq->rec_x1[irec] - gmg[0].x1s[i]) / gmg[0].d1[ip1];
+    w2 = (acq->rec_x2[irec] - gmg[0].x2[j]) / gmg[0].d2s[j];
+    w3 = (acq->rec_x3[irec] - gmg[0].x3s[k]) / gmg[0].d3[kp1];
+    s = 0;
+    s += Hy[k][j][i] * (1. - w1) * (1. - w2) * (1. - w3);
+    s += Hy[k][j][ip1] * w1 * (1. - w2) * (1. - w3);
+    s += Hy[k][jp1][i] * (1. - w1) * w2 * (1. - w3);
+    s += Hy[k][jp1][ip1] * w1 * w2 * (1. - w3);
+    s += Hy[kp1][j][i] * (1. - w1) * (1. - w2) * w3;
+    s += Hy[kp1][j][ip1] * w1 * (1. - w2) * w3;
+    s += Hy[kp1][jp1][i] * (1. - w1) * w2 * w3;
+    s += Hy[kp1][jp1][ip1] * w1 * w2 * w3;
+    emf_->d_Hy[ipolar][ifreq][irec] = s;
+  }
+
+}
+
+//inject adjoint sources for inversion
 void inject_adjoint_sources(acq_t *acq, int ifreq, int ipolar)
 {
   int n1, n2, n3, n;
