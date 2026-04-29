@@ -43,6 +43,11 @@
 #define mu0 (4.*PI*1e-7)
 #endif
 
+#if defined(__GNUC__) || defined(__clang__)
+#define CSTD_NORETURN __attribute__((noreturn))
+#else
+#define CSTD_NORETURN
+#endif
 
 /* allocate and free multi-dimensional arrays */
 void *alloc1 (size_t n1, size_t size);
@@ -175,7 +180,7 @@ double eatod(char *s);
 }
 #endif
 
-void err(char *fmt, ...);
+void err(char *fmt, ...) CSTD_NORETURN;
 void warn(char *fmt, ...);
 
 #endif

@@ -23,6 +23,27 @@ void extend_model_free(emf_t *emf);
 void mt1d_efield_at_boundary(gmg_t *gmg, double freq, int ipolar);
 void extract_mt_data(acq_t *acq, int ifreq, int ipolar);
 void write_mt_data(acq_t *acq, emf_t *emf, char *fname);
+void write_computational_model_hdf5(emf_t *emf, int ifreq, const char *fname);
+
+static void make_frequency_mesh_filename(const char *base, int nfreq, int ifreq,
+                                         char *fname, size_t fname_size)
+{
+  char *dot;
+  size_t stem_len;
+
+  if(nfreq == 1) {
+    snprintf(fname, fname_size, "%s", base);
+    return;
+  }
+
+  dot = strrchr(base, '.');
+  if(dot != NULL) {
+    stem_len = (size_t)(dot - base);
+    snprintf(fname, fname_size, "%.*s_freq%04d%s", (int)stem_len, base, ifreq, dot);
+  } else {
+    snprintf(fname, fname_size, "%s_freq%04d.h5", base, ifreq);
+  }
+}
 
 static void allocate_modelling_buffers(acq_t *acq, emf_t *emf, int need_fields)
 {
@@ -35,6 +56,9 @@ static void allocate_modelling_buffers(acq_t *acq, emf_t *emf, int need_fields)
     emf->d_Ey = alloc3complexf(acq->nrec, emf->nfreq, 2);
     emf->d_Hx = alloc3complexf(acq->nrec, emf->nfreq, 2);
     emf->d_Hy = alloc3complexf(acq->nrec, emf->nfreq, 2);
+    if (emf->d_Ex == NULL || emf->d_Ey == NULL ||
+        emf->d_Hx == NULL || emf->d_Hy == NULL)
+      err("unable to allocate receiver field buffers");
     memset(&emf->d_Ex[0][0][0], 0, 2 * acq->nrec * emf->nfreq * sizeof(float _Complex));
     memset(&emf->d_Ey[0][0][0], 0, 2 * acq->nrec * emf->nfreq * sizeof(float _Complex));
     memset(&emf->d_Hx[0][0][0], 0, 2 * acq->nrec * emf->nfreq * sizeof(float _Complex));
@@ -45,6 +69,9 @@ static void allocate_modelling_buffers(acq_t *acq, emf_t *emf, int need_fields)
   emf->cal_Zxy = alloc2complexf(acq->nrec, emf->nfreq);
   emf->cal_Zyx = alloc2complexf(acq->nrec, emf->nfreq);
   emf->cal_Zyy = alloc2complexf(acq->nrec, emf->nfreq);
+  if (emf->cal_Zxx == NULL || emf->cal_Zxy == NULL ||
+      emf->cal_Zyx == NULL || emf->cal_Zyy == NULL)
+    err("unable to allocate MT impedance buffers");
   memset(&emf->cal_Zxx[0][0], 0, (size_t)emf->nfreq * acq->nrec * sizeof(float _Complex));
   memset(&emf->cal_Zxy[0][0], 0, (size_t)emf->nfreq * acq->nrec * sizeof(float _Complex));
   memset(&emf->cal_Zyx[0][0], 0, (size_t)emf->nfreq * acq->nrec * sizeof(float _Complex));
@@ -71,9 +98,19 @@ static void solve_frequency(acq_t *acq, emf_t *emf, int ifreq, float _Complex *r
 
   if (emf->verb) printf("freq=%g\n", emf->freqs[ifreq]);
   extend_model_init(emf, ifreq);
+  {
+    char *fmesh;
+    char mesh_fname[PATH_MAX];
+
+    if(!getparstring("fmesh", &fmesh)) fmesh = "mesh.h5";
+    make_frequency_mesh_filename(fmesh, emf->nfreq, ifreq, mesh_fname, sizeof(mesh_fname));
+    write_computational_model_hdf5(emf, ifreq, mesh_fname);
+    if(emf->verb) printf("wrote computational model mesh to %s\n", mesh_fname);
+  }
   gmg_init(emf, ifreq);
   n = 3 * (gmg[0].n1 + 1) * (gmg[0].n2 + 1) * (gmg[0].n3 + 1);
   u_bc = alloc1complex(n);
+  if (u_bc == NULL) err("unable to allocate boundary-field buffer");
 
   /* Run the two source polarizations needed to assemble the 2x2 impedance tensor. */
   for (ipolar = 0; ipolar < 2; ++ipolar) {
@@ -187,6 +224,7 @@ void do_modelling(acq_t *acq, emf_t *emf)
      */
     allocate_modelling_buffers(acq, emf, 0);
     result = alloc1complexf(4 * acq->nrec);
+    if (result == NULL) err("unable to allocate MPI result buffer");
     next_task = 0;
     active_workers = 0;
 
@@ -251,6 +289,7 @@ void do_modelling(acq_t *acq, emf_t *emf)
      */
     allocate_modelling_buffers(acq, emf, 1);
     result = alloc1complexf(4 * acq->nrec);
+    if (result == NULL) err("unable to allocate MPI worker result buffer");
     while (1) {
       /* Wait for either:
        * TAG_WORK: solve the assigned frequency and send back 4 impedance arrays

@@ -412,6 +412,9 @@ void inversion_init(acq_t *acq, emf_t *emf)
   emf->d_Ey = alloc3complexf(acq->nrec, emf->nfreq, 2);
   emf->d_Hx = alloc3complexf(acq->nrec, emf->nfreq, 2);
   emf->d_Hy = alloc3complexf(acq->nrec, emf->nfreq, 2);
+  if(emf->d_Ex == NULL || emf->d_Ey == NULL ||
+     emf->d_Hx == NULL || emf->d_Hy == NULL)
+    err("inversion_init: unable to allocate receiver field buffers");
   memset(&emf->d_Ex[0][0][0], 0, 2 * acq->nrec * emf->nfreq * sizeof(float _Complex));
   memset(&emf->d_Ey[0][0][0], 0, 2 * acq->nrec * emf->nfreq * sizeof(float _Complex));
   memset(&emf->d_Hx[0][0][0], 0, 2 * acq->nrec * emf->nfreq * sizeof(float _Complex));
@@ -421,6 +424,9 @@ void inversion_init(acq_t *acq, emf_t *emf)
   emf->s_Ey = alloc3complexf(acq->nrec, emf->nfreq, 2);
   emf->s_Hx = alloc3complexf(acq->nrec, emf->nfreq, 2);
   emf->s_Hy = alloc3complexf(acq->nrec, emf->nfreq, 2);
+  if(emf->s_Ex == NULL || emf->s_Ey == NULL ||
+     emf->s_Hx == NULL || emf->s_Hy == NULL)
+    err("inversion_init: unable to allocate adjoint source buffers");
   memset(&emf->s_Ex[0][0][0], 0, 2 * acq->nrec * emf->nfreq * sizeof(float _Complex));
   memset(&emf->s_Ey[0][0][0], 0, 2 * acq->nrec * emf->nfreq * sizeof(float _Complex));
   memset(&emf->s_Hx[0][0][0], 0, 2 * acq->nrec * emf->nfreq * sizeof(float _Complex));
@@ -430,6 +436,8 @@ void inversion_init(acq_t *acq, emf_t *emf)
   if(size == 1 || rank != 0) {
     emf->Efwd = alloc3complexf(3 * ncell, emf->nfreq, 2);
     emf->Eadj = alloc3complexf(3 * ncell, emf->nfreq, 2);
+    if(emf->Efwd == NULL || emf->Eadj == NULL)
+      err("inversion_init: unable to allocate field history buffers");
     memset(&emf->Efwd[0][0][0], 0, 2 * emf->nfreq * 3 * ncell * sizeof(float _Complex));
     memset(&emf->Eadj[0][0][0], 0, 2 * emf->nfreq * 3 * ncell * sizeof(float _Complex));
   }
@@ -451,6 +459,15 @@ void inversion_init(acq_t *acq, emf_t *emf)
     emf->w_Zxy = alloc2float(acq->nrec, emf->nfreq);
     emf->w_Zyx = alloc2float(acq->nrec, emf->nfreq);
     emf->w_Zyy = alloc2float(acq->nrec, emf->nfreq);
+    if(emf->cal_Zxx == NULL || emf->cal_Zxy == NULL ||
+       emf->cal_Zyx == NULL || emf->cal_Zyy == NULL ||
+       emf->obs_Zxx == NULL || emf->obs_Zxy == NULL ||
+       emf->obs_Zyx == NULL || emf->obs_Zyy == NULL ||
+       emf->res_Zxx == NULL || emf->res_Zxy == NULL ||
+       emf->res_Zyx == NULL || emf->res_Zyy == NULL ||
+       emf->w_Zxx == NULL || emf->w_Zxy == NULL ||
+       emf->w_Zyx == NULL || emf->w_Zyy == NULL)
+      err("inversion_init: unable to allocate impedance/data-weight buffers");
     memset(&emf->cal_Zxx[0][0], 0, (size_t)emf->nfreq * acq->nrec * sizeof(float _Complex));
     memset(&emf->cal_Zxy[0][0], 0, (size_t)emf->nfreq * acq->nrec * sizeof(float _Complex));
     memset(&emf->cal_Zyx[0][0], 0, (size_t)emf->nfreq * acq->nrec * sizeof(float _Complex));

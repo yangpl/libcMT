@@ -81,6 +81,8 @@ void mt1d_solve_ani(double freq,
   complex M[16], S[16], T[16], SM[16], Cbot[4], MC[4], F[4];
   complex G11, G12, G21, G22, detG, CD1, CD2;
 
+  if(Ex == NULL || Ey == NULL) err("mt1d_solve_ani: output field buffers are NULL");
+
   if(freq <= 0.0 || ncell < 1){
     for(i=0; i<nlay; ++i){
       Ex[i] = ExTop;
@@ -88,6 +90,8 @@ void mt1d_solve_ani(double freq,
     }
     return;
   }
+  if(sxx == NULL || syy == NULL || sxy == NULL)
+    err("mt1d_solve_ani: conductivity buffers are NULL");
 
   Sprod = malloc((size_t)nlay * 16 * sizeof(complex));
   xip = malloc((size_t)nlay * sizeof(complex));
@@ -262,8 +266,10 @@ fail:
 void mt1d_init(int nlayer_, double *z)
 {
   int i;
+  if(nlayer_ < 2 || z == NULL) err("mt1d_init: invalid vertical grid");
   nlayer = nlayer_;
   h = malloc((nlayer-1)*sizeof(double));
+  if(h == NULL) err("mt1d_init: unable to allocate layer thicknesses");
   for(i=0; i<nlayer-1; ++i) h[i] = z[i+1] - z[i];
 }
 
@@ -307,6 +313,9 @@ void mt1d_efield_at_boundary(gmg_t *gmg, double freq, int ipolar)
   sxy1d = malloc(n3 * sizeof(double));
   Ex1d = malloc((n3 + 1) * sizeof(complex));
   Ey1d = malloc((n3 + 1) * sizeof(complex));
+  if(sxx1d == NULL || syy1d == NULL || sxy1d == NULL ||
+     Ex1d == NULL || Ey1d == NULL)
+    err("mt1d_efield_at_boundary: unable to allocate 1D boundary buffers");
   mt1d_init(n3 + 1, gmg[0].x3);
 
   /* XY polarization: impose Ex-driven boundary fields along the x-directed edges. */

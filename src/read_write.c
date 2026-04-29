@@ -217,6 +217,75 @@ static void write_float_dataset_3d(hid_t file_id, const char *name,
   check_hdf5_status(H5Sclose(space_id), "error closing HDF5 dataspace");
 }
 
+void write_computational_model_hdf5(emf_t *emf, int ifreq, const char *fname)
+{
+  hid_t file_id;
+  float *x1, *x2, *x3;
+  float *rho11, *rho22, *rho33;
+  float frequency;
+  int i1, i2, i3;
+  size_t id;
+  size_t ncell;
+
+  if(emf == NULL || fname == NULL) err("invalid computational mesh output request");
+  if(emf->x1 == NULL || emf->x2 == NULL || emf->x3 == NULL ||
+     emf->sigma11 == NULL || emf->sigma22 == NULL || emf->sigma33 == NULL)
+    err("computational mesh output requested before extended model is initialized");
+
+  ncell = (size_t)emf->n1 * emf->n2 * emf->n3;
+  x1 = alloc1float(emf->n1 + 1);
+  x2 = alloc1float(emf->n2 + 1);
+  x3 = alloc1float(emf->n3 + 1);
+  rho11 = alloc1float(ncell);
+  rho22 = alloc1float(ncell);
+  rho33 = alloc1float(ncell);
+  if(x1 == NULL || x2 == NULL || x3 == NULL ||
+     rho11 == NULL || rho22 == NULL || rho33 == NULL)
+    err("error allocating computational mesh output buffers");
+
+  for(i1 = 0; i1 <= emf->n1; ++i1) x1[i1] = (float)emf->x1[i1];
+  for(i2 = 0; i2 <= emf->n2; ++i2) x2[i2] = (float)emf->x2[i2];
+  for(i3 = 0; i3 <= emf->n3; ++i3) x3[i3] = (float)emf->x3[i3];
+
+  id = 0;
+  for(i3 = 0; i3 < emf->n3; ++i3) {
+    for(i2 = 0; i2 < emf->n2; ++i2) {
+      for(i1 = 0; i1 < emf->n1; ++i1) {
+        if(emf->sigma11[i3][i2][i1] <= 0.0 ||
+           emf->sigma22[i3][i2][i1] <= 0.0 ||
+           emf->sigma33[i3][i2][i1] <= 0.0)
+          err("nonpositive conductivity in computational mesh output");
+        rho11[id] = (float)(1.0 / emf->sigma11[i3][i2][i1]);
+        rho22[id] = (float)(1.0 / emf->sigma22[i3][i2][i1]);
+        rho33[id] = (float)(1.0 / emf->sigma33[i3][i2][i1]);
+        ++id;
+      }
+    }
+  }
+
+  file_id = H5Fcreate(fname, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
+  if(file_id < 0) err("error opening computational mesh HDF5 file for writing");
+
+  write_float_dataset_1d(file_id, "fx1", emf->n1 + 1, x1);
+  write_float_dataset_1d(file_id, "fx2", emf->n2 + 1, x2);
+  write_float_dataset_1d(file_id, "fx3", emf->n3 + 1, x3);
+  write_float_dataset_3d(file_id, "frho11", emf->n3, emf->n2, emf->n1, rho11);
+  write_float_dataset_3d(file_id, "frho22", emf->n3, emf->n2, emf->n1, rho22);
+  write_float_dataset_3d(file_id, "frho33", emf->n3, emf->n2, emf->n1, rho33);
+  if(ifreq >= 0 && ifreq < emf->nfreq) {
+    frequency = emf->freqs[ifreq];
+    write_float_dataset_1d(file_id, "frequency", 1, &frequency);
+  }
+
+  check_hdf5_status(H5Fclose(file_id), "error closing computational mesh HDF5 file");
+  free1float(x1);
+  free1float(x2);
+  free1float(x3);
+  free1float(rho11);
+  free1float(rho22);
+  free1float(rho33);
+}
+
 void write_inversion_model_hdf5(emf_t *emf, const float *x)
 {
   hid_t file_id;

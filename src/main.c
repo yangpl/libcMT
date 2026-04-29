@@ -42,8 +42,9 @@ int main(int argc, char **argv)
   MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
   initargs(argc, argv);
 
-  acq = malloc(sizeof(acq_t));
-  emf = malloc(sizeof(emf_t));
+  acq = calloc(1, sizeof(acq_t));
+  emf = calloc(1, sizeof(emf_t));
+  if(acq == NULL || emf == NULL) err("failed to allocate application state");
   if(!getparint("verb", &emf->verb)) emf->verb = 1;/* 1 prints progress messages, 0 runs quietly. */
   if(!getparint("mode", &emf->mode)) emf->mode = 0;/* 0 = modelling, 1 = inversion, 2 = gradient only. */
   if(mpi_rank != 0) emf->verb = 0;

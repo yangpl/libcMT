@@ -1315,11 +1315,16 @@ static void getparinit (void)
 
     if (parfile) {
 	pffd = fopen(pfname, "r");
+	if (pffd == NULL)
+	    err("getparinit: cannot open parameter file %s", pfname);
 
 	/* Get the length */
-	fseek(pffd, 0, SEEK_END);
+	if (fseek(pffd, 0, SEEK_END) != 0)
+	    err("getparinit: cannot seek parameter file %s", pfname);
 
 	pflen = ftell(pffd);
+	if (pflen < 0)
+	    err("getparinit: cannot determine parameter file size %s", pfname);
 
 	rewind(pffd);
 	argstrlen += pflen;
@@ -1337,8 +1342,14 @@ static void getparinit (void)
   Reginald H. Beardsley			    rhb@acm.org
   \*--------------------------------------------------------------------*/
 
-    argstr = (char *) alloc1(argstrlen+1, 1);
-    targv = (char **) alloc1((argstrlen+1)/4,sizeof(char*));
+    /* Keep one byte between par-file text and command-line text, plus the
+     * final string terminator.  The old argstrlen+1 allocation was one byte
+     * short because command-line arguments are copied at argstr+pflen+1. */
+    argstr = (char *) alloc1((size_t)argstrlen+2, 1);
+    /* In the worst case every character could start a one-character token. */
+    targv = (char **) alloc1((size_t)argstrlen+2, sizeof(char*));
+    if (argstr == NULL || targv == NULL)
+	err("getparinit: unable to allocate argument parser buffers");
 
     if (parfile) {
 	/* Read the parfile */
@@ -1351,7 +1362,9 @@ static void getparinit (void)
 	fclose(pffd);
 
 
-    } 
+    }
+
+    argstr[pflen] = 0;
 
     /* force input to valid 7 bit ASCII */
 
@@ -1434,6 +1447,8 @@ static void getparinit (void)
     /* Allocate space for the pointer table */
 
     argtbl = (pointer_table*) alloc1(targc, sizeof(pointer_table));
+    if (targc > 0 && argtbl == NULL)
+	err("getparinit: unable to allocate argument table");
 
     /* Tabulate targv */
 
