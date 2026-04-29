@@ -207,4 +207,3 @@ The inversion template uses the same HDF5 model contract as the forward template
 ## Notes On Included Test Directories
 
 - `test_mt1d/` contains standalone 1D MT derivations, small drivers, and plotting helpers.
-- `test_parallelization/` contains a minimal MPI master/worker example, not the main solver.
