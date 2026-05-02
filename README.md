@@ -200,6 +200,9 @@ The inversion template uses the same HDF5 model contract as the forward template
 - MPI parallelization is implemented across frequencies.
 - In multi-rank forward modelling, rank 0 schedules work and collects results; worker ranks solve one frequency at a time.
 - In inversion mode, rank 0 owns the optimizer and workers handle per-frequency forward/adjoint solves.
+- The inversion scheduler is pipelined. A worker first solves the forward problem for one frequency and returns the sampled receiver fields. Rank 0 computes the impedance residual and adjoint receiver sources, sends those sources back to the same worker, and the worker then solves the adjoint problem and returns that frequency's gradient contribution.
+- Rank 0 handles forward completions and gradient completions as independent MPI events. It can therefore service completed forward solves from other workers while some workers are still running adjoint solves, instead of blocking on one worker's gradient before receiving more forward results.
+- The adjoint solve for a frequency still depends on that frequency's forward result. The implementation keeps the forward field history local to the worker that computed it, avoiding a full all-forward-then-all-adjoint phase that would require large field transfers, extra memory, or forward recomputation.
 - The current inversion parameterization is VTI in log-conductivity: one horizontal parameter for `sigma11 = sigma22`, and one vertical parameter for `sigma33`.
 - The code treats cells with resistivity greater than or equal to `rho_air` as air when applying inversion bounds and building the extended model.
 - Frequencies can be supplied directly with `freqs=...` or through `ffreqs=...` (HDF5 frequency file 'ffreqs' must contain dataset `freqs`).
