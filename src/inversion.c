@@ -24,6 +24,11 @@
 #define TAG_INV_GRAD_INDEX 106
 #define TAG_INV_GRAD_DATA 107
 
+#define INV_FIELD_BLOCKS 8
+#define INV_WORKER_IDLE 0
+#define INV_WORKER_FORWARD 1
+#define INV_WORKER_ADJOINT 2
+
 static emf_t *inv_emf;
 static acq_t *inv_acq;
 
@@ -150,6 +155,21 @@ static void pack_forward_data(int ifreq, float _Complex *buffer)
     buffer[6 * inv_acq->nrec + irec] = inv_emf->d_Hy[0][ifreq][irec];
     buffer[7 * inv_acq->nrec + irec] = inv_emf->d_Hy[1][ifreq][irec];
   }
+}
+
+static int packed_receiver_count(void)
+{
+  if(inv_acq->nrec > INT_MAX / INV_FIELD_BLOCKS)
+    err("too many receivers to pack inversion MPI buffer");
+  return INV_FIELD_BLOCKS * inv_acq->nrec;
+}
+
+static int packed_receiver_bytes(void)
+{
+  int count = packed_receiver_count();
+  if(count > INT_MAX / (int)sizeof(float _Complex))
+    err("inversion MPI receiver buffer is too large");
+  return count * (int)sizeof(float _Complex);
 }
 
 /* Unpack the MPI forward-field buffer back into the receiver-field arrays. */
@@ -525,8 +545,11 @@ void inversion_worker_loop(acq_t *acq, emf_t *emf)
   int ncell = emf->nx * emf->ny * emf->nz;
   float *x = alloc1float(2 * ncell);
   float *g_local = alloc1float(2 * ncell);
-  float _Complex *forward_data = alloc1complexf(8 * acq->nrec);/* Receiver fields for two polarizations. */
-  float _Complex *source_data = alloc1complexf(8 * acq->nrec);/* Adjoint receiver sources for two polarizations. */
+  float _Complex *forward_data = alloc1complexf(INV_FIELD_BLOCKS * acq->nrec);/* Receiver fields for two polarizations. */
+  float _Complex *source_data = alloc1complexf(INV_FIELD_BLOCKS * acq->nrec);/* Adjoint receiver sources for two polarizations. */
+
+  if(x == NULL || g_local == NULL || forward_data == NULL || source_data == NULL)
+    err("inversion_worker_loop: unable to allocate worker buffers");
 
   inv_acq = acq;
   inv_emf = emf;
@@ -549,9 +572,9 @@ void inversion_worker_loop(acq_t *acq, emf_t *emf)
       forward_modelling(assigned_ifreq);//forward simulation for ifreq
       pack_forward_data(assigned_ifreq, forward_data);
       MPI_Send(&assigned_ifreq, 1, MPI_INT, 0, TAG_INV_FORWARD_INDEX, MPI_COMM_WORLD);
-      MPI_Send(forward_data, 8 * acq->nrec * (int)sizeof(float _Complex), MPI_BYTE, 0, TAG_INV_FORWARD_DATA, MPI_COMM_WORLD);
+      MPI_Send(forward_data, packed_receiver_bytes(), MPI_BYTE, 0, TAG_INV_FORWARD_DATA, MPI_COMM_WORLD);
 
-      MPI_Recv(source_data, 8 * acq->nrec * (int)sizeof(float _Complex), MPI_BYTE, 0, TAG_INV_ADJOINT_SOURCES, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+      MPI_Recv(source_data, packed_receiver_bytes(), MPI_BYTE, 0, TAG_INV_ADJOINT_SOURCES, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
       unpack_adjoint_sources(assigned_ifreq, source_data);
 
       memset(g_local, 0, 2 * ncell * sizeof(float));
@@ -570,7 +593,9 @@ void inversion_worker_loop(acq_t *acq, emf_t *emf)
 /* Objective callback executed only on rank 0. In serial it follows the original full
  * forward-then-adjoint path. Under MPI it becomes a scheduler: broadcast the current model,
  * dynamically assign frequencies to workers, assemble residuals and adjoint sources as soon
- * as each forward result arrives, then collect and sum the returned per-frequency gradients. */
+ * as each forward result arrives, then collect and sum the returned per-frequency gradients.
+ * Forward completions and gradient completions are handled as independent events so rank 0
+ * can service newly finished forwards while other workers are still running adjoints. */
 float inversion_grad(const float *x, float *g)
 {
   int rank, size;
@@ -619,11 +644,19 @@ float inversion_grad(const float *x, float *g)
     int next_task = 0;
     int active_workers = 0;
     int worker;
+    int *worker_state = alloc1int(size);
+    int *worker_ifreq = alloc1int(size);
     float *g_local = alloc1float(2 * ncell);/* Horizontal and vertical log-conductivity gradients. */
-    float _Complex *forward_data = alloc1complexf(8 * inv_acq->nrec);/* Receiver fields for both polarizations. */
-    float _Complex *source_data = alloc1complexf(8 * inv_acq->nrec);
+    float _Complex *forward_data = alloc1complexf(INV_FIELD_BLOCKS * inv_acq->nrec);/* Receiver fields for both polarizations. */
+    float _Complex *source_data = alloc1complexf(INV_FIELD_BLOCKS * inv_acq->nrec);
+
+    if(worker_state == NULL || worker_ifreq == NULL ||
+       g_local == NULL || forward_data == NULL || source_data == NULL)
+      err("inversion_grad: unable to allocate MPI scheduler buffers");
 
     zero_master_buffers();
+    memset(worker_state, 0, (size_t)size * sizeof(int));
+    for(worker = 0; worker < size; ++worker) worker_ifreq[worker] = -1;
 
     MPI_Bcast(&command, 1, MPI_INT, 0, MPI_COMM_WORLD);
     MPI_Bcast((void*)x, 2 * ncell, MPI_FLOAT, 0, MPI_COMM_WORLD);
@@ -633,40 +666,57 @@ float inversion_grad(const float *x, float *g)
     for(worker = 1; worker < size; ++worker) {
       if(next_task < inv_emf->nfreq) {
         MPI_Send(&next_task, 1, MPI_INT, worker, TAG_INV_WORK, MPI_COMM_WORLD);
+        worker_state[worker] = INV_WORKER_FORWARD;
+        worker_ifreq[worker] = next_task;
         ++next_task;
         ++active_workers;
       } else {
         MPI_Send(NULL, 0, MPI_INT, worker, TAG_INV_PHASE_STOP, MPI_COMM_WORLD);
+        worker_state[worker] = INV_WORKER_IDLE;
       }
     }
 
     while(active_workers > 0) {
-      int result_ifreq;
-      int grad_ifreq;
+      int event_ifreq;
       MPI_Status status;
 
-      MPI_Recv(&result_ifreq, 1, MPI_INT, MPI_ANY_SOURCE, TAG_INV_FORWARD_INDEX, MPI_COMM_WORLD, &status);
+      MPI_Recv(&event_ifreq, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
       worker = status.MPI_SOURCE;
-      MPI_Recv(forward_data, 8 * inv_acq->nrec * (int)sizeof(float _Complex), MPI_BYTE, worker, TAG_INV_FORWARD_DATA, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-      unpack_forward_data(result_ifreq, forward_data);
 
-      fcost += compute_adjoint_sources(result_ifreq);
-      pack_adjoint_sources(result_ifreq, source_data);
-      MPI_Send(source_data, 8 * inv_acq->nrec * (int)sizeof(float _Complex), MPI_BYTE, worker, TAG_INV_ADJOINT_SOURCES, MPI_COMM_WORLD);
+      if(status.MPI_TAG == TAG_INV_FORWARD_INDEX) {
+        if(worker_state[worker] != INV_WORKER_FORWARD || worker_ifreq[worker] != event_ifreq)
+          err("worker %d returned unexpected forward frequency %d", worker, event_ifreq);
 
-      MPI_Recv(&grad_ifreq, 1, MPI_INT, worker, TAG_INV_GRAD_INDEX, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-      MPI_Recv(g_local, 2 * ncell, MPI_FLOAT, worker, TAG_INV_GRAD_DATA, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-      if(grad_ifreq != result_ifreq) err("worker %d returned mismatched gradient frequency %d for forward frequency %d", worker, grad_ifreq, result_ifreq);
-      for(ifreq = 0; ifreq < 2 * ncell; ++ifreq) g[ifreq] += g_local[ifreq];/* Sum this frequency's gradient into the objective gradient. */
+        MPI_Recv(forward_data, packed_receiver_bytes(), MPI_BYTE, worker, TAG_INV_FORWARD_DATA, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        unpack_forward_data(event_ifreq, forward_data);
 
-      if(inv_emf->verb) printf("rank 0 collected inversion freq=%g from worker %d\n", inv_emf->freqs[result_ifreq], worker);
+        fcost += compute_adjoint_sources(event_ifreq);
+        pack_adjoint_sources(event_ifreq, source_data);
+        MPI_Send(source_data, packed_receiver_bytes(), MPI_BYTE, worker, TAG_INV_ADJOINT_SOURCES, MPI_COMM_WORLD);
+        worker_state[worker] = INV_WORKER_ADJOINT;
 
-      if(next_task < inv_emf->nfreq) {
-        MPI_Send(&next_task, 1, MPI_INT, worker, TAG_INV_WORK, MPI_COMM_WORLD);
-        ++next_task;
+      } else if(status.MPI_TAG == TAG_INV_GRAD_INDEX) {
+        if(worker_state[worker] != INV_WORKER_ADJOINT || worker_ifreq[worker] != event_ifreq)
+          err("worker %d returned unexpected gradient frequency %d", worker, event_ifreq);
+
+        MPI_Recv(g_local, 2 * ncell, MPI_FLOAT, worker, TAG_INV_GRAD_DATA, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        for(ifreq = 0; ifreq < 2 * ncell; ++ifreq) g[ifreq] += g_local[ifreq];/* Sum this frequency's gradient into the objective gradient. */
+
+        if(inv_emf->verb) printf("rank 0 collected inversion freq=%g from worker %d\n", inv_emf->freqs[event_ifreq], worker);
+
+        if(next_task < inv_emf->nfreq) {
+          MPI_Send(&next_task, 1, MPI_INT, worker, TAG_INV_WORK, MPI_COMM_WORLD);
+          worker_state[worker] = INV_WORKER_FORWARD;
+          worker_ifreq[worker] = next_task;
+          ++next_task;
+        } else {
+          MPI_Send(NULL, 0, MPI_INT, worker, TAG_INV_PHASE_STOP, MPI_COMM_WORLD);
+          worker_state[worker] = INV_WORKER_IDLE;
+          worker_ifreq[worker] = -1;
+          --active_workers;
+        }
       } else {
-        MPI_Send(NULL, 0, MPI_INT, worker, TAG_INV_PHASE_STOP, MPI_COMM_WORLD);
-        --active_workers;
+        err("rank 0 received unexpected inversion MPI tag %d from worker %d", status.MPI_TAG, worker);
       }
     }
 
@@ -676,6 +726,8 @@ float inversion_grad(const float *x, float *g)
     write_inversion_gradient_hdf5(inv_emf, g);
     write_mt_data(inv_acq, inv_emf, "mt_data_syn.h5");
     
+    free1int(worker_state);
+    free1int(worker_ifreq);
     free1float(g_local);
     free1complexf(forward_data);
     free1complexf(source_data);
