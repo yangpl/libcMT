@@ -31,6 +31,7 @@
 
 static emf_t *inv_emf;
 static acq_t *inv_acq;
+static int inv_field_nfreq;
 
 void extend_model_init(emf_t *emf, int ifreq);
 void extend_model_free(emf_t *emf);
@@ -91,6 +92,21 @@ static void clear_inversion_pointers(emf_t *emf)
   emf->s_Hy = NULL;
   emf->Efwd = NULL;
   emf->Eadj = NULL;
+}
+
+static void check_frequency_index(int ifreq)
+{
+  if(ifreq < 0 || ifreq >= inv_emf->nfreq)
+    err("invalid inversion frequency index %d", ifreq);
+}
+
+static int field_history_index(int ifreq)
+{
+  check_frequency_index(ifreq);
+  if(inv_field_nfreq <= 0)
+    err("inversion field history is not allocated on this rank");
+  if(inv_field_nfreq == 1) return 0;
+  return ifreq;
 }
 
 void inversion_init_data_weights(acq_t *acq, emf_t *emf)
@@ -227,12 +243,15 @@ static void unpack_adjoint_sources(int ifreq, const float _Complex *buffer)
 static void forward_modelling(int ifreq)
 {
   int i, n, ipolar, lev;
+  int field_ifreq;
   complex *u_bc;
 
+  field_ifreq = field_history_index(ifreq);
   extend_model_init(inv_emf, ifreq);
   gmg_init(inv_emf, ifreq);
   n = 3 * (gmg[0].n1 + 1) * (gmg[0].n2 + 1) * (gmg[0].n3 + 1);
   u_bc = alloc1complex(n);
+  if(u_bc == NULL) err("unable to allocate boundary-field buffer for inversion");
 
   for(ipolar = 0; ipolar < 2; ++ipolar) {
     if(inv_emf->verb) {
@@ -255,7 +274,7 @@ static void forward_modelling(int ifreq)
     for(i = 0; i < n; ++i) (&gmg[0].u[0][0][0][0])[i] += u_bc[i];
     compute_H_from_E(gmg);
     extract_mt_data(inv_acq, ifreq, ipolar);
-    extract_electric_fields(ifreq, ipolar, inv_emf->Efwd);
+    extract_electric_fields(field_ifreq, ipolar, inv_emf->Efwd);
   }
 
   free1complex(u_bc);
@@ -270,8 +289,10 @@ static void adjoint_modelling(int ifreq, float *g)
 {
   int i, j, k;
   int id, n, ipolar, lev;
+  int field_ifreq;
   int ncell = inv_emf->nx * inv_emf->ny * inv_emf->nz;
 
+  field_ifreq = field_history_index(ifreq);
   extend_model_init(inv_emf, ifreq);
   gmg_init(inv_emf, ifreq);
   n = 3 * (gmg[0].n1 + 1) * (gmg[0].n2 + 1) * (gmg[0].n3 + 1);
@@ -291,7 +312,7 @@ static void adjoint_modelling(int ifreq, float *g)
       for(lev = 1; lev < lmax; ++lev) grid_free(gmg, lev);
     }
     compute_H_from_E(gmg);
-    extract_electric_fields(ifreq, ipolar, inv_emf->Eadj);
+    extract_electric_fields(field_ifreq, ipolar, inv_emf->Eadj);
   }
 
   gmg_free();
@@ -302,9 +323,9 @@ static void adjoint_modelling(int ifreq, float *g)
       for(j = 0; j < inv_emf->ny; ++j) {
         for(i = 0; i < inv_emf->nx; ++i) {
           id = i + inv_emf->nx * (j + inv_emf->ny * k);
-          g[id] -= crealf(inv_emf->Efwd[ipolar][ifreq][id] * inv_emf->Eadj[ipolar][ifreq][id]);
-          g[id] -= crealf(inv_emf->Efwd[ipolar][ifreq][id + ncell] * inv_emf->Eadj[ipolar][ifreq][id + ncell]);
-          g[id + ncell] -= crealf(inv_emf->Efwd[ipolar][ifreq][id + 2 * ncell] * inv_emf->Eadj[ipolar][ifreq][id + 2 * ncell]);
+          g[id] -= crealf(inv_emf->Efwd[ipolar][field_ifreq][id] * inv_emf->Eadj[ipolar][field_ifreq][id]);
+          g[id] -= crealf(inv_emf->Efwd[ipolar][field_ifreq][id + ncell] * inv_emf->Eadj[ipolar][field_ifreq][id + ncell]);
+          g[id + ncell] -= crealf(inv_emf->Efwd[ipolar][field_ifreq][id + 2 * ncell] * inv_emf->Eadj[ipolar][field_ifreq][id + 2 * ncell]);
         }
       }
     }
@@ -426,6 +447,7 @@ void inversion_init(acq_t *acq, emf_t *emf)
 
   inv_acq = acq;
   inv_emf = emf;
+  inv_field_nfreq = 0;
   clear_inversion_pointers(emf);
 
   emf->d_Ex = alloc3complexf(acq->nrec, emf->nfreq, 2);
@@ -454,12 +476,13 @@ void inversion_init(acq_t *acq, emf_t *emf)
 
   ncell = emf->nx * emf->ny * emf->nz;
   if(size == 1 || rank != 0) {
-    emf->Efwd = alloc3complexf(3 * ncell, emf->nfreq, 2);
-    emf->Eadj = alloc3complexf(3 * ncell, emf->nfreq, 2);
+    inv_field_nfreq = (size == 1) ? emf->nfreq : 1;
+    emf->Efwd = alloc3complexf(3 * ncell, inv_field_nfreq, 2);
+    emf->Eadj = alloc3complexf(3 * ncell, inv_field_nfreq, 2);
     if(emf->Efwd == NULL || emf->Eadj == NULL)
       err("inversion_init: unable to allocate field history buffers");
-    memset(&emf->Efwd[0][0][0], 0, 2 * emf->nfreq * 3 * ncell * sizeof(float _Complex));
-    memset(&emf->Eadj[0][0][0], 0, 2 * emf->nfreq * 3 * ncell * sizeof(float _Complex));
+    memset(&emf->Efwd[0][0][0], 0, 2 * inv_field_nfreq * 3 * ncell * sizeof(float _Complex));
+    memset(&emf->Eadj[0][0][0], 0, 2 * inv_field_nfreq * 3 * ncell * sizeof(float _Complex));
   }
 
   if(rank == 0) {
@@ -533,6 +556,7 @@ void inversion_free(emf_t *emf)
   if(emf->Eadj != NULL) free3complexf(emf->Eadj);
 
   clear_inversion_pointers(emf);
+  inv_field_nfreq = 0;
 }
 
 /* Long-lived worker loop for inversion. Each optimization step starts with a broadcast
@@ -568,6 +592,9 @@ void inversion_worker_loop(acq_t *acq, emf_t *emf)
     while(1) {
       MPI_Recv(&assigned_ifreq, 1, MPI_INT, 0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
       if(status.MPI_TAG == TAG_INV_PHASE_STOP) break;
+      if(status.MPI_TAG != TAG_INV_WORK)
+        err("worker received unexpected inversion MPI tag %d", status.MPI_TAG);
+      check_frequency_index(assigned_ifreq);
 
       forward_modelling(assigned_ifreq);//forward simulation for ifreq
       pack_forward_data(assigned_ifreq, forward_data);
@@ -613,8 +640,8 @@ float inversion_grad(const float *x, float *g)
 
   if(size == 1) {
     zero_master_buffers();
-    memset(&inv_emf->Efwd[0][0][0], 0, 2 * inv_emf->nfreq * 3 * ncell * sizeof(float _Complex));
-    memset(&inv_emf->Eadj[0][0][0], 0, 2 * inv_emf->nfreq * 3 * ncell * sizeof(float _Complex));
+    memset(&inv_emf->Efwd[0][0][0], 0, 2 * inv_field_nfreq * 3 * ncell * sizeof(float _Complex));
+    memset(&inv_emf->Eadj[0][0][0], 0, 2 * inv_field_nfreq * 3 * ncell * sizeof(float _Complex));
 
     if(inv_emf->verb) printf("---------- forward modelling -----------\n");
     for(ifreq = 0; ifreq < inv_emf->nfreq; ++ifreq) forward_modelling(ifreq);
@@ -682,6 +709,9 @@ float inversion_grad(const float *x, float *g)
 
       MPI_Recv(&event_ifreq, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
       worker = status.MPI_SOURCE;
+      if(worker <= 0 || worker >= size)
+        err("rank 0 received inversion MPI event from invalid worker %d", worker);
+      check_frequency_index(event_ifreq);
 
       if(status.MPI_TAG == TAG_INV_FORWARD_INDEX) {
         if(worker_state[worker] != INV_WORKER_FORWARD || worker_ifreq[worker] != event_ifreq)
