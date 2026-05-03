@@ -6,8 +6,8 @@ HDF5_LIB := /usr/lib/x86_64-linux-gnu/hdf5/serial #$(shell pkg-config --libs hdf
 
 BIN = ../bin
 TARGET = $(BIN)/libcMT
-LIB = -lm -L$(HDF5_LIB) -lhdf5
-INC = -I../include -I$(HDF5_INC)
+LIB = -lm $(shell pkg-config --libs hdf5) #-L$(HDF5_LIB) -lhdf5
+INC = -I../include $(shell pkg-config --cflags hdf5) # -I$(HDF5_INC)
 SRC = $(wildcard *.c)
 OBJ = $(SRC:.c=.o)
 
