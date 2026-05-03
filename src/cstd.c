@@ -210,6 +210,7 @@ Zhaobo Meng, added 4D, 5D and 6D functions, 1996
 *****************************************************************************/
 /**************** end self doc ********************************/
 #include "cstd.h"
+#include <mpi.h>
 
 /* allocate a 1-d array */
 void *alloc1 (size_t n1, size_t size)
@@ -1580,6 +1581,8 @@ double eatod(char *s)
 void err(char *fmt, ...)
 {
     va_list args;
+    int mpi_initialized = 0;
+    int mpi_finalized = 0;
 
     if (EOF == fflush(stdout)) {
 	fprintf(stderr, "\nerr: fflush failed on stdout");
@@ -1589,6 +1592,12 @@ void err(char *fmt, ...)
     vfprintf(stderr, fmt, args);
     va_end(args);
     fprintf(stderr, "\n");
+
+    MPI_Initialized(&mpi_initialized);
+    MPI_Finalized(&mpi_finalized);
+    if (mpi_initialized && !mpi_finalized) {
+	MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
+    }
     exit(EXIT_FAILURE);
 }
 

@@ -1,6 +1,16 @@
 /* Objective and adjoint machinery for MT inversion.
  * Allocates inversion-side data buffers, performs forward and adjoint
  * solves, forms impedance residuals, and returns misfit/gradient values.
+
+  - Workers now allocate receiver/source buffers for one frequency slot instead of all emf->nfreq.
+  - Rank 0 still keeps full receiver/source history so residuals and mt_data_syn.h5 output remain complete.
+  - Rank 0 now reserves local work and participates in forward/adjoint modelling during MPI inversion.
+  - Workers keep dynamic task assignment, but accumulate their local gradient contributions and join one final MPI_Reduce per objective evaluation.
+  - Removed per-frequency gradient vector sends from workers; they now send only completion messages.
+
+  Scheduling is still dynamic across variable-cost frequencies. The MPI_Reduce happens only after all dynamically
+  assigned work is finished.
+
  *----------------------------------------------------------------------
  *   Copyright (c) Pengliang Yang
  *   E-mail: ypl.2100@gmail.com
@@ -22,7 +32,6 @@
 #define TAG_INV_FORWARD_DATA 104
 #define TAG_INV_ADJOINT_SOURCES 105
 #define TAG_INV_GRAD_INDEX 106
-#define TAG_INV_GRAD_DATA 107
 
 #define INV_FIELD_BLOCKS 8
 #define INV_WORKER_IDLE 0
@@ -32,6 +41,7 @@
 static emf_t *emf;
 static acq_t *acq;
 static int nfreq;
+static int data_nfreq;
 
 void extend_model_init(emf_t *emf, int ifreq);
 void extend_model_free(emf_t *emf);
@@ -109,6 +119,15 @@ static int field_history_index(int ifreq)
   return ifreq;
 }
 
+static int data_history_index(int ifreq)
+{
+  check_frequency_index(ifreq);
+  if(data_nfreq <= 0)
+    err("inversion receiver/source history is not allocated on this rank");
+  if(data_nfreq == 1) return 0;
+  return ifreq;
+}
+
 void inversion_init_data_weights(acq_t *acq, emf_t *emf)
 {
   int ifreq, irec;
@@ -138,10 +157,10 @@ void inversion_init_data_weights(acq_t *acq, emf_t *emf)
  * keep their own per-frequency field caches and never touch the master-owned tensors. */
 static void zero_master_buffers(void)
 {
-  memset(&emf->d_Ex[0][0][0], 0, 2 * acq->nrec * emf->nfreq * sizeof(float _Complex));
-  memset(&emf->d_Ey[0][0][0], 0, 2 * acq->nrec * emf->nfreq * sizeof(float _Complex));
-  memset(&emf->d_Hx[0][0][0], 0, 2 * acq->nrec * emf->nfreq * sizeof(float _Complex));
-  memset(&emf->d_Hy[0][0][0], 0, 2 * acq->nrec * emf->nfreq * sizeof(float _Complex));
+  memset(&emf->d_Ex[0][0][0], 0, 2 * acq->nrec * data_nfreq * sizeof(float _Complex));
+  memset(&emf->d_Ey[0][0][0], 0, 2 * acq->nrec * data_nfreq * sizeof(float _Complex));
+  memset(&emf->d_Hx[0][0][0], 0, 2 * acq->nrec * data_nfreq * sizeof(float _Complex));
+  memset(&emf->d_Hy[0][0][0], 0, 2 * acq->nrec * data_nfreq * sizeof(float _Complex));
   memset(&emf->cal_Zxx[0][0], 0, (size_t)emf->nfreq * acq->nrec * sizeof(float _Complex));
   memset(&emf->cal_Zxy[0][0], 0, (size_t)emf->nfreq * acq->nrec * sizeof(float _Complex));
   memset(&emf->cal_Zyx[0][0], 0, (size_t)emf->nfreq * acq->nrec * sizeof(float _Complex));
@@ -150,10 +169,10 @@ static void zero_master_buffers(void)
   memset(&emf->res_Zxy[0][0], 0, (size_t)emf->nfreq * acq->nrec * sizeof(float _Complex));
   memset(&emf->res_Zyx[0][0], 0, (size_t)emf->nfreq * acq->nrec * sizeof(float _Complex));
   memset(&emf->res_Zyy[0][0], 0, (size_t)emf->nfreq * acq->nrec * sizeof(float _Complex));
-  memset(&emf->s_Ex[0][0][0], 0, 2 * acq->nrec * emf->nfreq * sizeof(float _Complex));
-  memset(&emf->s_Ey[0][0][0], 0, 2 * acq->nrec * emf->nfreq * sizeof(float _Complex));
-  memset(&emf->s_Hx[0][0][0], 0, 2 * acq->nrec * emf->nfreq * sizeof(float _Complex));
-  memset(&emf->s_Hy[0][0][0], 0, 2 * acq->nrec * emf->nfreq * sizeof(float _Complex));
+  memset(&emf->s_Ex[0][0][0], 0, 2 * acq->nrec * data_nfreq * sizeof(float _Complex));
+  memset(&emf->s_Ey[0][0][0], 0, 2 * acq->nrec * data_nfreq * sizeof(float _Complex));
+  memset(&emf->s_Hx[0][0][0], 0, 2 * acq->nrec * data_nfreq * sizeof(float _Complex));
+  memset(&emf->s_Hy[0][0][0], 0, 2 * acq->nrec * data_nfreq * sizeof(float _Complex));
 }
 
 /* Pack receiver fields for both source polarizations into one MPI buffer:
@@ -244,9 +263,11 @@ static void forward_modelling(int ifreq)
 {
   int i, n, ipolar, lev;
   int field_ifreq;
+  int data_ifreq;
   complex *u_bc;
 
   field_ifreq = field_history_index(ifreq);
+  data_ifreq = data_history_index(ifreq);
   extend_model_init(emf, ifreq);
   gmg_init(emf, ifreq);
   n = 3 * (gmg[0].n1 + 1) * (gmg[0].n2 + 1) * (gmg[0].n3 + 1);
@@ -273,7 +294,7 @@ static void forward_modelling(int ifreq)
     }
     for(i = 0; i < n; ++i) (&gmg[0].u[0][0][0][0])[i] += u_bc[i];
     compute_H_from_E(gmg);
-    extract_mt_data(acq, ifreq, ipolar);
+    extract_mt_data(acq, data_ifreq, ipolar);
     extract_electric_fields(field_ifreq, ipolar, emf->Efwd);
   }
 
@@ -290,9 +311,11 @@ static void adjoint_modelling(int ifreq, float *g)
   int i, j, k;
   int id, n, ipolar, lev;
   int field_ifreq;
+  int data_ifreq;
   int ncell = emf->nx * emf->ny * emf->nz;
 
   field_ifreq = field_history_index(ifreq);
+  data_ifreq = data_history_index(ifreq);
   extend_model_init(emf, ifreq);
   gmg_init(emf, ifreq);
   n = 3 * (gmg[0].n1 + 1) * (gmg[0].n2 + 1) * (gmg[0].n3 + 1);
@@ -302,7 +325,7 @@ static void adjoint_modelling(int ifreq, float *g)
       if(ipolar == 0) printf("---- freq=%g, XY polarization \n", emf->freqs[ifreq]);
       if(ipolar == 1) printf("---- freq=%g, YX polarization \n", emf->freqs[ifreq]);
     }
-    inject_adjoint_sources(acq, ifreq, ipolar);
+    inject_adjoint_sources(acq, data_ifreq, ipolar);
     memset(&gmg[0].r[0][0][0][0], 0, n * sizeof(complex));
     memset(&gmg[0].u[0][0][0][0], 0, n * sizeof(complex));
     for(icycle = 0; icycle < ncycle; ++icycle) {
@@ -448,40 +471,40 @@ void inversion_init(acq_t *input_acq, emf_t *input_emf)
   acq = input_acq;
   emf = input_emf;
   nfreq = 0;
+  data_nfreq = 0;
   clear_inversion_pointers(emf);
 
-  emf->d_Ex = alloc3complexf(acq->nrec, emf->nfreq, 2);
-  emf->d_Ey = alloc3complexf(acq->nrec, emf->nfreq, 2);
-  emf->d_Hx = alloc3complexf(acq->nrec, emf->nfreq, 2);
-  emf->d_Hy = alloc3complexf(acq->nrec, emf->nfreq, 2);
+  data_nfreq = (rank == 0) ? emf->nfreq : 1;
+  emf->d_Ex = alloc3complexf(acq->nrec, data_nfreq, 2);
+  emf->d_Ey = alloc3complexf(acq->nrec, data_nfreq, 2);
+  emf->d_Hx = alloc3complexf(acq->nrec, data_nfreq, 2);
+  emf->d_Hy = alloc3complexf(acq->nrec, data_nfreq, 2);
   if(emf->d_Ex == NULL || emf->d_Ey == NULL || emf->d_Hx == NULL || emf->d_Hy == NULL)
     err("inversion_init: unable to allocate receiver field buffers");
-  memset(&emf->d_Ex[0][0][0], 0, 2 * acq->nrec * emf->nfreq * sizeof(float _Complex));
-  memset(&emf->d_Ey[0][0][0], 0, 2 * acq->nrec * emf->nfreq * sizeof(float _Complex));
-  memset(&emf->d_Hx[0][0][0], 0, 2 * acq->nrec * emf->nfreq * sizeof(float _Complex));
-  memset(&emf->d_Hy[0][0][0], 0, 2 * acq->nrec * emf->nfreq * sizeof(float _Complex));
+  memset(&emf->d_Ex[0][0][0], 0, 2 * acq->nrec * data_nfreq * sizeof(float _Complex));
+  memset(&emf->d_Ey[0][0][0], 0, 2 * acq->nrec * data_nfreq * sizeof(float _Complex));
+  memset(&emf->d_Hx[0][0][0], 0, 2 * acq->nrec * data_nfreq * sizeof(float _Complex));
+  memset(&emf->d_Hy[0][0][0], 0, 2 * acq->nrec * data_nfreq * sizeof(float _Complex));
 
-  emf->s_Ex = alloc3complexf(acq->nrec, emf->nfreq, 2);
-  emf->s_Ey = alloc3complexf(acq->nrec, emf->nfreq, 2);
-  emf->s_Hx = alloc3complexf(acq->nrec, emf->nfreq, 2);
-  emf->s_Hy = alloc3complexf(acq->nrec, emf->nfreq, 2);
+  emf->s_Ex = alloc3complexf(acq->nrec, data_nfreq, 2);
+  emf->s_Ey = alloc3complexf(acq->nrec, data_nfreq, 2);
+  emf->s_Hx = alloc3complexf(acq->nrec, data_nfreq, 2);
+  emf->s_Hy = alloc3complexf(acq->nrec, data_nfreq, 2);
   if(emf->s_Ex == NULL || emf->s_Ey == NULL || emf->s_Hx == NULL || emf->s_Hy == NULL)
     err("inversion_init: unable to allocate adjoint source buffers");
-  memset(&emf->s_Ex[0][0][0], 0, 2 * acq->nrec * emf->nfreq * sizeof(float _Complex));
-  memset(&emf->s_Ey[0][0][0], 0, 2 * acq->nrec * emf->nfreq * sizeof(float _Complex));
-  memset(&emf->s_Hx[0][0][0], 0, 2 * acq->nrec * emf->nfreq * sizeof(float _Complex));
-  memset(&emf->s_Hy[0][0][0], 0, 2 * acq->nrec * emf->nfreq * sizeof(float _Complex));
+  memset(&emf->s_Ex[0][0][0], 0, 2 * acq->nrec * data_nfreq * sizeof(float _Complex));
+  memset(&emf->s_Ey[0][0][0], 0, 2 * acq->nrec * data_nfreq * sizeof(float _Complex));
+  memset(&emf->s_Hx[0][0][0], 0, 2 * acq->nrec * data_nfreq * sizeof(float _Complex));
+  memset(&emf->s_Hy[0][0][0], 0, 2 * acq->nrec * data_nfreq * sizeof(float _Complex));
 
   ncell = emf->nx * emf->ny * emf->nz;
-  if(size == 1 || rank != 0) {
-    nfreq = (size == 1) ? emf->nfreq : 1;
-    emf->Efwd = alloc3complexf(3 * ncell, nfreq, 2);
-    emf->Eadj = alloc3complexf(3 * ncell, nfreq, 2);
-    if(emf->Efwd == NULL || emf->Eadj == NULL)
-      err("inversion_init: unable to allocate field history buffers");
-    memset(&emf->Efwd[0][0][0], 0, 2 * nfreq * 3 * ncell * sizeof(float _Complex));
-    memset(&emf->Eadj[0][0][0], 0, 2 * nfreq * 3 * ncell * sizeof(float _Complex));
-  }
+  nfreq = (size == 1) ? emf->nfreq : 1;
+  emf->Efwd = alloc3complexf(3 * ncell, nfreq, 2);
+  emf->Eadj = alloc3complexf(3 * ncell, nfreq, 2);
+  if(emf->Efwd == NULL || emf->Eadj == NULL)
+    err("inversion_init: unable to allocate field history buffers");
+  memset(&emf->Efwd[0][0][0], 0, 2 * nfreq * 3 * ncell * sizeof(float _Complex));
+  memset(&emf->Eadj[0][0][0], 0, 2 * nfreq * 3 * ncell * sizeof(float _Complex));
 
   if(rank == 0) {
     emf->cal_Zxx = alloc2complexf(acq->nrec, emf->nfreq);
@@ -555,12 +578,14 @@ void inversion_free(emf_t *emf)
 
   clear_inversion_pointers(emf);
   nfreq = 0;
+  data_nfreq = 0;
 }
 
 /* Long-lived worker loop for inversion. Each optimization step starts with a broadcast
  * of the current model vector, then workers repeatedly: (1) solve one assigned frequency
  * forward, (2) return sampled receiver fields, (3) receive adjoint sources for that same
- * frequency, and (4) return the per-frequency gradient contribution. */
+ * frequency, and (4) accumulate the per-frequency gradient contribution for the final
+ * reduction. */
 void inversion_worker_loop(acq_t *input_acq, emf_t *input_emf)
 {
   int command;
@@ -592,27 +617,30 @@ void inversion_worker_loop(acq_t *input_acq, emf_t *input_emf)
 
     MPI_Bcast(x, 2 * ncell, MPI_FLOAT, 0, MPI_COMM_WORLD);
     model_from_vector(x);
+    memset(g_local, 0, 2 * ncell * sizeof(float));
 
     while(1) {
+      int data_ifreq;
       MPI_Recv(&assigned_ifreq, 1, MPI_INT, 0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
       if(status.MPI_TAG == TAG_INV_PHASE_STOP) break;
       if(status.MPI_TAG != TAG_INV_WORK)
         err("worker received unexpected inversion MPI tag %d", status.MPI_TAG);
       check_frequency_index(assigned_ifreq);
+      data_ifreq = data_history_index(assigned_ifreq);
 
       forward_modelling(assigned_ifreq);//forward simulation for ifreq
-      pack_forward_data(assigned_ifreq, forward_data);
+      pack_forward_data(data_ifreq, forward_data);
       MPI_Send(&assigned_ifreq, 1, MPI_INT, 0, TAG_INV_FORWARD_INDEX, MPI_COMM_WORLD);
       MPI_Send(forward_data, packed_receiver_bytes(), MPI_BYTE, 0, TAG_INV_FORWARD_DATA, MPI_COMM_WORLD);
 
       MPI_Recv(source_data, packed_receiver_bytes(), MPI_BYTE, 0, TAG_INV_ADJOINT_SOURCES, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-      unpack_adjoint_sources(assigned_ifreq, source_data);
+      unpack_adjoint_sources(data_ifreq, source_data);
 
-      memset(g_local, 0, 2 * ncell * sizeof(float));
       adjoint_modelling(assigned_ifreq, g_local);//adjoint simulation for ifreq
       MPI_Send(&assigned_ifreq, 1, MPI_INT, 0, TAG_INV_GRAD_INDEX, MPI_COMM_WORLD);
-      MPI_Send(g_local, 2 * ncell, MPI_FLOAT, 0, TAG_INV_GRAD_DATA, MPI_COMM_WORLD);
     }
+
+    MPI_Reduce(g_local, g_local, 2 * ncell, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
   }
 
   free1float(x);
@@ -621,12 +649,76 @@ void inversion_worker_loop(acq_t *input_acq, emf_t *input_emf)
   free1complexf(source_data);
 }
 
+static int receive_worker_event(int blocking, int *event_ifreq, MPI_Status *status)
+{
+  int flag = 1;
+
+  if(!blocking) {
+    MPI_Iprobe(MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &flag, status);
+    if(!flag) return 0;
+    MPI_Recv(event_ifreq, 1, MPI_INT, status->MPI_SOURCE, status->MPI_TAG, MPI_COMM_WORLD, status);
+  } else {
+    MPI_Recv(event_ifreq, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, status);
+  }
+
+  return 1;
+}
+
+static void service_worker_event(int event_ifreq, MPI_Status *status,
+                                 int *worker_state, int *worker_ifreq,
+                                 int *next_task, int *active_workers,
+                                 float _Complex *forward_data,
+                                 float _Complex *source_data,
+                                 double *fcost)
+{
+  int worker = status->MPI_SOURCE;
+
+  if(worker <= 0)
+    err("rank 0 received inversion MPI event from invalid worker %d", worker);
+  check_frequency_index(event_ifreq);
+
+  if(status->MPI_TAG == TAG_INV_FORWARD_INDEX) {
+    if(worker_state[worker] != INV_WORKER_FORWARD || worker_ifreq[worker] != event_ifreq)
+      err("worker %d returned unexpected forward frequency %d", worker, event_ifreq);
+
+    MPI_Recv(forward_data, packed_receiver_bytes(), MPI_BYTE, worker, TAG_INV_FORWARD_DATA, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    unpack_forward_data(event_ifreq, forward_data);
+
+    *fcost += compute_adjoint_sources(event_ifreq);
+    pack_adjoint_sources(event_ifreq, source_data);
+    MPI_Send(source_data, packed_receiver_bytes(), MPI_BYTE, worker, TAG_INV_ADJOINT_SOURCES, MPI_COMM_WORLD);
+    worker_state[worker] = INV_WORKER_ADJOINT;
+
+  } else if(status->MPI_TAG == TAG_INV_GRAD_INDEX) {
+    if(worker_state[worker] != INV_WORKER_ADJOINT || worker_ifreq[worker] != event_ifreq)
+      err("worker %d returned unexpected gradient frequency %d", worker, event_ifreq);
+
+    if(emf->verb) printf("rank 0 collected inversion freq=%g from worker %d\n", emf->freqs[event_ifreq], worker);
+
+    if(*next_task < emf->nfreq) {
+      MPI_Send(next_task, 1, MPI_INT, worker, TAG_INV_WORK, MPI_COMM_WORLD);
+      worker_state[worker] = INV_WORKER_FORWARD;
+      worker_ifreq[worker] = *next_task;
+      ++(*next_task);
+    } else {
+      MPI_Send(NULL, 0, MPI_INT, worker, TAG_INV_PHASE_STOP, MPI_COMM_WORLD);
+      worker_state[worker] = INV_WORKER_IDLE;
+      worker_ifreq[worker] = -1;
+      --(*active_workers);
+    }
+  } else {
+    err("rank 0 received unexpected inversion MPI tag %d from worker %d", status->MPI_TAG, worker);
+  }
+}
+
 /* Objective callback executed only on rank 0. In serial it follows the original full
  * forward-then-adjoint path. Under MPI it becomes a scheduler: broadcast the current model,
  * dynamically assign frequencies to workers, assemble residuals and adjoint sources as soon
- * as each forward result arrives, then collect and sum the returned per-frequency gradients.
+ * as each forward result arrives, then wait for per-frequency gradient completion messages.
  * Forward completions and gradient completions are handled as independent events so rank 0
- * can service newly finished forwards while other workers are still running adjoints. */
+ * can service newly finished forwards while other workers are still running adjoints.
+ * Each rank accumulates its assigned gradient contributions locally, then all ranks use
+ * one reduction at the end of the objective evaluation. */
 float inversion_grad(const float *x, float *g)
 {
   int rank, size;
@@ -675,9 +767,10 @@ float inversion_grad(const float *x, float *g)
     int next_task = 0;
     int active_workers = 0;
     int worker;
+    int initial_worker_limit;
     int *worker_state = alloc1int(size);
     int *worker_ifreq = alloc1int(size);
-    float *g_local = alloc1float(2 * ncell);/* Horizontal and vertical log-conductivity gradients. */
+    float *g_local = alloc1float(2 * ncell);/* Rank-local horizontal and vertical log-conductivity gradients. */
     float _Complex *forward_data = alloc1complexf(INV_FIELD_BLOCKS * acq->nrec);/* Receiver fields for both polarizations. */
     float _Complex *source_data = alloc1complexf(INV_FIELD_BLOCKS * acq->nrec);
 
@@ -686,6 +779,7 @@ float inversion_grad(const float *x, float *g)
       err("inversion_grad: unable to allocate MPI scheduler buffers");
 
     zero_master_buffers();
+    memset(g_local, 0, 2 * ncell * sizeof(float));
     memset(worker_state, 0, (size_t)size * sizeof(int));
     for(worker = 0; worker < size; ++worker) worker_ifreq[worker] = -1;
 
@@ -694,8 +788,9 @@ float inversion_grad(const float *x, float *g)
 
     if(emf->verb) printf("---------- forward/adjoint modelling -----------\n");
 
+    initial_worker_limit = (emf->nfreq > 0) ? emf->nfreq - 1 : 0;/* Reserve one task so rank 0 also computes. */
     for(worker = 1; worker < size; ++worker) {
-      if(next_task < emf->nfreq) {
+      if(next_task < initial_worker_limit) {
         MPI_Send(&next_task, 1, MPI_INT, worker, TAG_INV_WORK, MPI_COMM_WORLD);
         worker_state[worker] = INV_WORKER_FORWARD;
         worker_ifreq[worker] = next_task;
@@ -707,53 +802,36 @@ float inversion_grad(const float *x, float *g)
       }
     }
 
-    while(active_workers > 0) {
+    while(active_workers > 0 || next_task < emf->nfreq) {
       int event_ifreq;
       MPI_Status status;
 
-      MPI_Recv(&event_ifreq, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-      worker = status.MPI_SOURCE;
-      if(worker <= 0 || worker >= size)
-        err("rank 0 received inversion MPI event from invalid worker %d", worker);
-      check_frequency_index(event_ifreq);
+      if(active_workers > 0 && receive_worker_event(0, &event_ifreq, &status)) {
+        service_worker_event(event_ifreq, &status, worker_state, worker_ifreq,
+                             &next_task, &active_workers, forward_data,
+                             source_data, &fcost);
+        continue;
+      }
 
-      if(status.MPI_TAG == TAG_INV_FORWARD_INDEX) {
-        if(worker_state[worker] != INV_WORKER_FORWARD || worker_ifreq[worker] != event_ifreq)
-          err("worker %d returned unexpected forward frequency %d", worker, event_ifreq);
+      if(next_task < emf->nfreq) {
+        int local_ifreq = next_task;
+        ++next_task;
+        if(emf->verb) printf("rank 0 processing inversion freq=%g locally\n", emf->freqs[local_ifreq]);
+        forward_modelling(local_ifreq);
+        fcost += compute_adjoint_sources(local_ifreq);
+        adjoint_modelling(local_ifreq, g_local);
+        continue;
+      }
 
-        MPI_Recv(forward_data, packed_receiver_bytes(), MPI_BYTE, worker, TAG_INV_FORWARD_DATA, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        unpack_forward_data(event_ifreq, forward_data);
-
-        fcost += compute_adjoint_sources(event_ifreq);
-        pack_adjoint_sources(event_ifreq, source_data);
-        MPI_Send(source_data, packed_receiver_bytes(), MPI_BYTE, worker, TAG_INV_ADJOINT_SOURCES, MPI_COMM_WORLD);
-        worker_state[worker] = INV_WORKER_ADJOINT;
-
-      } else if(status.MPI_TAG == TAG_INV_GRAD_INDEX) {
-        if(worker_state[worker] != INV_WORKER_ADJOINT || worker_ifreq[worker] != event_ifreq)
-          err("worker %d returned unexpected gradient frequency %d", worker, event_ifreq);
-
-        MPI_Recv(g_local, 2 * ncell, MPI_FLOAT, worker, TAG_INV_GRAD_DATA, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        for(ifreq = 0; ifreq < 2 * ncell; ++ifreq) g[ifreq] += g_local[ifreq];/* Sum this frequency's gradient into the objective gradient. */
-
-        if(emf->verb) printf("rank 0 collected inversion freq=%g from worker %d\n", emf->freqs[event_ifreq], worker);
-
-        if(next_task < emf->nfreq) {
-          MPI_Send(&next_task, 1, MPI_INT, worker, TAG_INV_WORK, MPI_COMM_WORLD);
-          worker_state[worker] = INV_WORKER_FORWARD;
-          worker_ifreq[worker] = next_task;
-          ++next_task;
-        } else {
-          MPI_Send(NULL, 0, MPI_INT, worker, TAG_INV_PHASE_STOP, MPI_COMM_WORLD);
-          worker_state[worker] = INV_WORKER_IDLE;
-          worker_ifreq[worker] = -1;
-          --active_workers;
-        }
-      } else {
-        err("rank 0 received unexpected inversion MPI tag %d from worker %d", status.MPI_TAG, worker);
+      if(active_workers > 0) {
+        receive_worker_event(1, &event_ifreq, &status);
+        service_worker_event(event_ifreq, &status, worker_state, worker_ifreq,
+                             &next_task, &active_workers, forward_data,
+                             source_data, &fcost);
       }
     }
 
+    MPI_Reduce(g_local, g, 2 * ncell, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
     apply_log_parameter_chain_rule(x, g);
     
     write_inversion_model_hdf5(emf, x);
