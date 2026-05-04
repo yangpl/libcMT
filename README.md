@@ -156,6 +156,12 @@ Manual inversion example:
 ./bin/libcMT mode=1 freqs=0.01,0.1 fmodel=model.h5 frec=receivers.h5 fdata=mt_data.h5 niter=20 npair=5
 ```
 
+MPI inversion example:
+
+```bash
+mpirun -np 4 ./bin/libcMT mode=1 freqs=0.01,0.1 fmodel=model.h5 frec=receivers.h5 fdata=mt_data.h5 niter=20 npair=5
+```
+
 ## Inversion Template
 
 The `run_inversion/` directory provides a small end-to-end template for synthetic inversion experiments.
@@ -199,14 +205,13 @@ The inversion template uses the same HDF5 model contract as the forward template
 
 - MPI parallelization is implemented across frequencies.
 - In multi-rank forward modelling, rank 0 schedules work and collects results; worker ranks solve one frequency at a time.
-- In inversion mode, rank 0 owns the optimizer and workers handle per-frequency forward/adjoint solves.
-- The inversion scheduler is pipelined. A worker first solves the forward problem for one frequency and returns the sampled receiver fields. Rank 0 computes the impedance residual and adjoint receiver sources, sends those sources back to the same worker, and the worker then solves the adjoint problem and returns that frequency's gradient contribution.
-- Rank 0 handles forward completions and gradient completions as independent MPI events. It can therefore service completed forward solves from other workers while some workers are still running adjoint solves, instead of blocking on one worker's gradient before receiving more forward results.
-- The adjoint solve for a frequency still depends on that frequency's forward result. The implementation keeps the forward field history local to the worker that computed it, avoiding a full all-forward-then-all-adjoint phase that would require large field transfers, extra memory, or forward recomputation.
-- In MPI inversion, each worker stores only one local forward/adjoint field-history slot and reuses it for each assigned frequency. This reduces worker memory by roughly a factor of `nfreq` compared with storing all frequency histories. Serial inversion still stores all frequency histories because it runs all forward solves before the adjoint pass.
+- In multi-rank inversion, rank 0 dynamically assigns frequencies to workers, but also reserves local work and participates in forward/adjoint modelling.
+- Worker ranks allocate receiver/source buffers and forward/adjoint field caches for one frequency slot, then reuse those buffers for each assigned frequency.
+- Rank 0 keeps the full receiver/source and impedance history so residual assembly and `mt_data_syn.h5` output remain complete; in MPI mode it still uses one local volumetric field-history slot for its own solves.
+- Workers accumulate gradient contributions locally and send only frequency-index completion messages after adjoint solves. The full model gradient is combined once per objective evaluation with `MPI_Reduce`.
 - The current inversion parameterization is VTI in log-conductivity: one horizontal parameter for `sigma11 = sigma22`, and one vertical parameter for `sigma33`.
 - The code treats cells with resistivity greater than or equal to `rho_air` as air when applying inversion bounds and building the extended model.
-- Frequencies can be supplied directly with `freqs=...` or through `ffreqs=...` (HDF5 frequency file 'ffreqs' must contain dataset `freqs`).
+- Frequencies can be supplied directly with `freqs=...` or through `ffreqs=...` (the HDF5 frequency file must contain dataset `freqs`).
 
 ## Notes On Included Test Directories
 

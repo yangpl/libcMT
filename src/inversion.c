@@ -834,6 +834,7 @@ float inversion_grad(const float *x, float *g)
     MPI_Reduce(g_local, g, 2 * ncell, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
     apply_log_parameter_chain_rule(x, g);
     
+    //not sure write inversion model, gradient and data will be performed only on master process. If not, codex should fix it!
     write_inversion_model_hdf5(emf, x);
     write_inversion_gradient_hdf5(emf, g);
     write_mt_data(acq, emf, "mt_data_syn.h5");
