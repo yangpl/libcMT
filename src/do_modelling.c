@@ -45,37 +45,37 @@ static void make_frequency_mesh_filename(const char *base, int nfreq, int ifreq,
   }
 }
 
-static void allocate_modelling_buffers(acq_t *acq, emf_t *emf, int need_fields)
+static void allocate_modelling_buffers(acq_t *acq, emf_t *emf, int nfreq_slots, int need_fields)
 {
   emf->d_Ex = NULL;
   emf->d_Ey = NULL;
   emf->d_Hx = NULL;
   emf->d_Hy = NULL;
   if (need_fields) {
-    emf->d_Ex = alloc3complexf(acq->nrec, emf->nfreq, 2);
-    emf->d_Ey = alloc3complexf(acq->nrec, emf->nfreq, 2);
-    emf->d_Hx = alloc3complexf(acq->nrec, emf->nfreq, 2);
-    emf->d_Hy = alloc3complexf(acq->nrec, emf->nfreq, 2);
+    emf->d_Ex = alloc3complexf(acq->nrec, nfreq_slots, 2);
+    emf->d_Ey = alloc3complexf(acq->nrec, nfreq_slots, 2);
+    emf->d_Hx = alloc3complexf(acq->nrec, nfreq_slots, 2);
+    emf->d_Hy = alloc3complexf(acq->nrec, nfreq_slots, 2);
     if (emf->d_Ex == NULL || emf->d_Ey == NULL ||
         emf->d_Hx == NULL || emf->d_Hy == NULL)
       err("unable to allocate receiver field buffers");
-    memset(&emf->d_Ex[0][0][0], 0, 2 * acq->nrec * emf->nfreq * sizeof(float _Complex));
-    memset(&emf->d_Ey[0][0][0], 0, 2 * acq->nrec * emf->nfreq * sizeof(float _Complex));
-    memset(&emf->d_Hx[0][0][0], 0, 2 * acq->nrec * emf->nfreq * sizeof(float _Complex));
-    memset(&emf->d_Hy[0][0][0], 0, 2 * acq->nrec * emf->nfreq * sizeof(float _Complex));
+    memset(&emf->d_Ex[0][0][0], 0, 2 * acq->nrec * nfreq_slots * sizeof(float _Complex));
+    memset(&emf->d_Ey[0][0][0], 0, 2 * acq->nrec * nfreq_slots * sizeof(float _Complex));
+    memset(&emf->d_Hx[0][0][0], 0, 2 * acq->nrec * nfreq_slots * sizeof(float _Complex));
+    memset(&emf->d_Hy[0][0][0], 0, 2 * acq->nrec * nfreq_slots * sizeof(float _Complex));
   }
 
-  emf->cal_Zxx = alloc2complexf(acq->nrec, emf->nfreq);
-  emf->cal_Zxy = alloc2complexf(acq->nrec, emf->nfreq);
-  emf->cal_Zyx = alloc2complexf(acq->nrec, emf->nfreq);
-  emf->cal_Zyy = alloc2complexf(acq->nrec, emf->nfreq);
+  emf->cal_Zxx = alloc2complexf(acq->nrec, nfreq_slots);
+  emf->cal_Zxy = alloc2complexf(acq->nrec, nfreq_slots);
+  emf->cal_Zyx = alloc2complexf(acq->nrec, nfreq_slots);
+  emf->cal_Zyy = alloc2complexf(acq->nrec, nfreq_slots);
   if (emf->cal_Zxx == NULL || emf->cal_Zxy == NULL ||
       emf->cal_Zyx == NULL || emf->cal_Zyy == NULL)
     err("unable to allocate MT impedance buffers");
-  memset(&emf->cal_Zxx[0][0], 0, (size_t)emf->nfreq * acq->nrec * sizeof(float _Complex));
-  memset(&emf->cal_Zxy[0][0], 0, (size_t)emf->nfreq * acq->nrec * sizeof(float _Complex));
-  memset(&emf->cal_Zyx[0][0], 0, (size_t)emf->nfreq * acq->nrec * sizeof(float _Complex));
-  memset(&emf->cal_Zyy[0][0], 0, (size_t)emf->nfreq * acq->nrec * sizeof(float _Complex));
+  memset(&emf->cal_Zxx[0][0], 0, (size_t)nfreq_slots * acq->nrec * sizeof(float _Complex));
+  memset(&emf->cal_Zxy[0][0], 0, (size_t)nfreq_slots * acq->nrec * sizeof(float _Complex));
+  memset(&emf->cal_Zyx[0][0], 0, (size_t)nfreq_slots * acq->nrec * sizeof(float _Complex));
+  memset(&emf->cal_Zyy[0][0], 0, (size_t)nfreq_slots * acq->nrec * sizeof(float _Complex));
 }
 
 static void free_modelling_buffers(emf_t *emf)
@@ -90,7 +90,7 @@ static void free_modelling_buffers(emf_t *emf)
   free2complexf(emf->cal_Zyy);
 }
 
-static void solve_frequency(acq_t *acq, emf_t *emf, int ifreq, float _Complex *result)
+static void solve_frequency(acq_t *acq, emf_t *emf, int ifreq, int data_ifreq, float _Complex *result)
 {
   int i, irec, n, ipolar, lev;
   complex det, *u_bc;
@@ -135,28 +135,28 @@ static void solve_frequency(acq_t *acq, emf_t *emf, int ifreq, float _Complex *r
     /* Add the boundary field back to the solved perturbation to recover total E. */
     for (i = 0; i < n; ++i) (&gmg[0].u[0][0][0][0])[i] += u_bc[i];//then E=gmg[0].u
     compute_H_from_E(gmg);//then H=gmg[0].f
-    extract_mt_data(acq, ifreq, ipolar);
+    extract_mt_data(acq, data_ifreq, ipolar);
   }
   free1complex(u_bc);
 
   /* Convert the sampled E/H fields into impedance tensor entries at each receiver. */
   for (irec = 0; irec < acq->nrec; ++irec) {
-    det = emf->d_Hx[0][ifreq][irec] * emf->d_Hy[1][ifreq][irec] - emf->d_Hy[0][ifreq][irec] * emf->d_Hx[1][ifreq][irec];
+    det = emf->d_Hx[0][data_ifreq][irec] * emf->d_Hy[1][data_ifreq][irec] - emf->d_Hy[0][data_ifreq][irec] * emf->d_Hx[1][data_ifreq][irec];
     det_abs = cabs(det);
     if(det_abs < 1e-30) err("singular MT impedance denominator at ifreq=%d irec=%d", ifreq, irec);
     //convert E/H to impedance Z
-    emf->cal_Zxx[ifreq][irec] = (emf->d_Ex[0][ifreq][irec] * emf->d_Hy[1][ifreq][irec] - emf->d_Ex[1][ifreq][irec] * emf->d_Hy[0][ifreq][irec]) / det;
-    emf->cal_Zxy[ifreq][irec] = (emf->d_Ex[1][ifreq][irec] * emf->d_Hx[0][ifreq][irec] - emf->d_Ex[0][ifreq][irec] * emf->d_Hx[1][ifreq][irec]) / det;
-    emf->cal_Zyx[ifreq][irec] = (emf->d_Ey[0][ifreq][irec] * emf->d_Hy[1][ifreq][irec] - emf->d_Ey[1][ifreq][irec] * emf->d_Hy[0][ifreq][irec]) / det;
-    emf->cal_Zyy[ifreq][irec] = (emf->d_Ey[1][ifreq][irec] * emf->d_Hx[0][ifreq][irec] - emf->d_Ey[0][ifreq][irec] * emf->d_Hx[1][ifreq][irec]) / det;
+    emf->cal_Zxx[data_ifreq][irec] = (emf->d_Ex[0][data_ifreq][irec] * emf->d_Hy[1][data_ifreq][irec] - emf->d_Ex[1][data_ifreq][irec] * emf->d_Hy[0][data_ifreq][irec]) / det;
+    emf->cal_Zxy[data_ifreq][irec] = (emf->d_Ex[1][data_ifreq][irec] * emf->d_Hx[0][data_ifreq][irec] - emf->d_Ex[0][data_ifreq][irec] * emf->d_Hx[1][data_ifreq][irec]) / det;
+    emf->cal_Zyx[data_ifreq][irec] = (emf->d_Ey[0][data_ifreq][irec] * emf->d_Hy[1][data_ifreq][irec] - emf->d_Ey[1][data_ifreq][irec] * emf->d_Hy[0][data_ifreq][irec]) / det;
+    emf->cal_Zyy[data_ifreq][irec] = (emf->d_Ey[1][data_ifreq][irec] * emf->d_Hx[0][data_ifreq][irec] - emf->d_Ey[0][data_ifreq][irec] * emf->d_Hx[1][data_ifreq][irec]) / det;
   }
 
   if (result != NULL) {
     for (irec = 0; irec < acq->nrec; ++irec) {
-      result[0 * acq->nrec + irec] = emf->cal_Zxx[ifreq][irec];
-      result[1 * acq->nrec + irec] = emf->cal_Zxy[ifreq][irec];
-      result[2 * acq->nrec + irec] = emf->cal_Zyx[ifreq][irec];
-      result[3 * acq->nrec + irec] = emf->cal_Zyy[ifreq][irec];
+      result[0 * acq->nrec + irec] = emf->cal_Zxx[data_ifreq][irec];
+      result[1 * acq->nrec + irec] = emf->cal_Zxy[data_ifreq][irec];
+      result[2 * acq->nrec + irec] = emf->cal_Zyx[data_ifreq][irec];
+      result[3 * acq->nrec + irec] = emf->cal_Zyy[data_ifreq][irec];
     }
   }
 
@@ -196,44 +196,45 @@ void do_modelling(acq_t *acq, emf_t *emf)
    * keep the full E/H field buffers because the same process will also form Z.
    */
   if (size == 1) {
-    allocate_modelling_buffers(acq, emf, 1);
-    for (ifreq = 0; ifreq < emf->nfreq; ++ifreq) solve_frequency(acq, emf, ifreq, NULL);
+    allocate_modelling_buffers(acq, emf, emf->nfreq, 1);
+    for (ifreq = 0; ifreq < emf->nfreq; ++ifreq) solve_frequency(acq, emf, ifreq, ifreq, NULL);
     write_mt_data(acq, emf, fdata);
     free_modelling_buffers(emf);
     return;
   }
 
-  /* Rank 0 acts as the scheduler and collector.
-   * It does not solve frequencies itself in the MPI case. Instead it:
-   * 1) sends frequency indices to workers,
-   * 2) receives one finished impedance tensor at a time,
-   * 3) stores the result in the global output arrays,
-   * 4) sends the worker another frequency or a stop message.
+  /* Rank 0 acts as scheduler and collector, but also solves reserved local
+   * frequencies. This follows the inversion scheduler pattern: workers receive
+   * dynamically assigned frequencies, while rank 0 services completed worker
+   * results whenever they are ready and otherwise advances the remaining queue
+   * by doing local modelling work.
    *
    * Because only rank 0 writes the final cal_Z** arrays that are later written
    * to disk, output assembly is centralized and deterministic.
    */
   if (rank == 0) {
     int next_task, active_workers, worker;
+    int initial_worker_limit;
     int result_ifreq;
     MPI_Status status;
     float _Complex *result;
+    int flag;
 
-    /* The master only needs storage for the final impedance tensors.
-     * It does not compute fields, so it skips allocation of d_Ex/d_Ey/d_Hx/d_Hy.
+    /* Rank 0 keeps full final impedance arrays for output and full receiver
+     * field arrays for its local solves. Worker ranks below allocate one slot.
      */
-    allocate_modelling_buffers(acq, emf, 0);
+    allocate_modelling_buffers(acq, emf, emf->nfreq, 1);
     result = alloc1complexf(4 * acq->nrec);
     if (result == NULL) err("unable to allocate MPI result buffer");
     next_task = 0;
     active_workers = 0;
 
-    /* Initial dispatch: give each worker at most one frequency.
-     * If there are more workers than frequencies, the extra workers are stopped
-     * immediately so they do not sit in the receive loop indefinitely.
+    /* Initial dispatch: leave at least one frequency for rank 0 when work
+     * exists, so the master does not sit idle while workers solve.
      */
+    initial_worker_limit = (emf->nfreq > 0) ? emf->nfreq - 1 : 0;
     for (worker = 1; worker < size; ++worker) {
-      if (next_task < emf->nfreq) {
+      if (next_task < initial_worker_limit) {
         MPI_Send(&next_task, 1, MPI_INT, worker, TAG_WORK, MPI_COMM_WORLD);
         ++next_task;
         ++active_workers;
@@ -242,30 +243,53 @@ void do_modelling(acq_t *acq, emf_t *emf)
       }
     }
 
-    /* Dynamic scheduling loop.
-     * MPI_ANY_SOURCE lets rank 0 accept whichever worker finishes first.
-     * This avoids load imbalance when some frequencies take longer to solve.
-     */
-    while (active_workers > 0) {
-      /* First receive the frequency index, then receive the packed tensor data
-       * for that frequency from the same worker.
-       */
-      MPI_Recv(&result_ifreq, 1, MPI_INT, MPI_ANY_SOURCE, TAG_RESULT_INDEX, MPI_COMM_WORLD, &status);
-      worker = status.MPI_SOURCE;
-      MPI_Recv(result, 4 * acq->nrec * (int)sizeof(float _Complex), MPI_BYTE, worker, TAG_RESULT_DATA, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-      store_frequency_result(acq, emf, result_ifreq, result);
+    while (active_workers > 0 || next_task < emf->nfreq) {
+      flag = 0;
+      if (active_workers > 0) {
+        MPI_Iprobe(MPI_ANY_SOURCE, TAG_RESULT_INDEX, MPI_COMM_WORLD, &flag, &status);
+      }
 
-      if (emf->verb) printf("rank 0 collected freq=%g from worker %d\n", emf->freqs[result_ifreq], worker);
+      if (flag) {
+        MPI_Recv(&result_ifreq, 1, MPI_INT, status.MPI_SOURCE, TAG_RESULT_INDEX, MPI_COMM_WORLD, &status);
+        worker = status.MPI_SOURCE;
+        MPI_Recv(result, 4 * acq->nrec * (int)sizeof(float _Complex), MPI_BYTE, worker, TAG_RESULT_DATA, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        store_frequency_result(acq, emf, result_ifreq, result);
 
-      /* Reuse the same worker immediately if there is more work.
-       * Otherwise send TAG_STOP and mark that worker as inactive.
-       */
+        if (emf->verb) printf("rank 0 collected freq=%g from worker %d\n", emf->freqs[result_ifreq], worker);
+
+        if (next_task < emf->nfreq) {
+          MPI_Send(&next_task, 1, MPI_INT, worker, TAG_WORK, MPI_COMM_WORLD);
+          ++next_task;
+        } else {
+          MPI_Send(NULL, 0, MPI_INT, worker, TAG_STOP, MPI_COMM_WORLD);
+          --active_workers;
+        }
+        continue;
+      }
+
       if (next_task < emf->nfreq) {
-        MPI_Send(&next_task, 1, MPI_INT, worker, TAG_WORK, MPI_COMM_WORLD);
+        int local_ifreq = next_task;
         ++next_task;
-      } else {
-        MPI_Send(NULL, 0, MPI_INT, worker, TAG_STOP, MPI_COMM_WORLD);
-        --active_workers;
+        if (emf->verb) printf("rank 0 processing modelling freq=%g locally\n", emf->freqs[local_ifreq]);
+        solve_frequency(acq, emf, local_ifreq, local_ifreq, NULL);
+        continue;
+      }
+
+      if (active_workers > 0) {
+        MPI_Recv(&result_ifreq, 1, MPI_INT, MPI_ANY_SOURCE, TAG_RESULT_INDEX, MPI_COMM_WORLD, &status);
+        worker = status.MPI_SOURCE;
+        MPI_Recv(result, 4 * acq->nrec * (int)sizeof(float _Complex), MPI_BYTE, worker, TAG_RESULT_DATA, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        store_frequency_result(acq, emf, result_ifreq, result);
+
+        if (emf->verb) printf("rank 0 collected freq=%g from worker %d\n", emf->freqs[result_ifreq], worker);
+
+        if (next_task < emf->nfreq) {
+          MPI_Send(&next_task, 1, MPI_INT, worker, TAG_WORK, MPI_COMM_WORLD);
+          ++next_task;
+        } else {
+          MPI_Send(NULL, 0, MPI_INT, worker, TAG_STOP, MPI_COMM_WORLD);
+          --active_workers;
+        }
       }
     }
 
@@ -287,7 +311,7 @@ void do_modelling(acq_t *acq, emf_t *emf)
      * There is no shared-memory synchronization here; coordination happens only
      * through MPI messages with rank 0.
      */
-    allocate_modelling_buffers(acq, emf, 1);
+    allocate_modelling_buffers(acq, emf, 1, 1);
     result = alloc1complexf(4 * acq->nrec);
     if (result == NULL) err("unable to allocate MPI worker result buffer");
     while (1) {
@@ -298,12 +322,14 @@ void do_modelling(acq_t *acq, emf_t *emf)
       MPI_Recv(&assigned_ifreq, 1, MPI_INT, 0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
       /* TAG_STOP exits the worker loop immediately, so the solve/send path below only runs for real work messages. */
       if (status.MPI_TAG == TAG_STOP) break;
+      if (status.MPI_TAG != TAG_WORK)
+        err("worker received unexpected modelling MPI tag %d", status.MPI_TAG);
 
       /* solve_frequency() fills the worker-local field buffers, forms the
        * impedance tensor for one frequency, and packs Zxx/Zxy/Zyx/Zyy into
        * result[] for transmission back to rank 0.
        */
-      solve_frequency(acq, emf, assigned_ifreq, result);
+      solve_frequency(acq, emf, assigned_ifreq, 0, result);
       MPI_Send(&assigned_ifreq, 1, MPI_INT, 0, TAG_RESULT_INDEX, MPI_COMM_WORLD);
       MPI_Send(result, 4 * acq->nrec * (int)sizeof(float _Complex), MPI_BYTE, 0, TAG_RESULT_DATA, MPI_COMM_WORLD);
     }

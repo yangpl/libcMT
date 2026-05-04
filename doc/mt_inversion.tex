@@ -419,11 +419,15 @@ where we denote the adjoint field by $\overline{v^p}=(\overline{v_E^p}, \overlin
 
 Frequency-domain MT modelling and inversion are naturally parallel over frequency. For a fixed conductivity model, the forward and adjoint problems at different angular frequencies are independent, so they can be assigned to different MPI ranks with little communication. The main complication is load balance: low and high frequencies may require different numbers of multigrid iterations, so a static partition can leave some ranks idle while others continue solving expensive frequencies.
 
-\texttt{libcMT} therefore uses a dynamic master--worker strategy. In forward-modelling mode, rank 0 keeps a queue of unprocessed frequencies, each worker receives one frequency, solves the two source polarisations, forms the impedance tensor, and returns the result. When a worker finishes, rank 0 immediately assigns the next frequency. This keeps the ranks busy even when the per-frequency runtime is heterogeneous.
+\texttt{libcMT} therefore uses a dynamic master--worker strategy. In forward-modelling mode, rank 0 keeps a queue of unprocessed frequencies, assigns frequencies to workers, collects completed impedance tensors, and also reserves local frequencies for its own forward solves. Each worker receives one frequency at a time, solves the two source polarisations, forms the impedance tensor in a reusable one-frequency buffer, and returns the result. When a worker finishes, rank 0 immediately assigns the next frequency if work remains; otherwise the worker is stopped. This keeps all available ranks, including rank 0, busy even when the per-frequency runtime is heterogeneous.
 
-In inversion mode the same frequency-level decomposition is used, but the forward and adjoint parts of a frequency are treated as a short pipeline rather than as one opaque blocking task. A worker first solves the forward problem for one assigned frequency and returns only the sampled receiver fields for the two source polarisations. Rank 0 then forms the impedance tensor, evaluates the residual contribution, and constructs the corresponding adjoint receiver sources. These sources are sent back to the same worker, which still owns the full forward field history needed for the gradient. The worker then solves the adjoint problem and returns the frequency-local gradient contribution. Because a worker processes only one frequency at a time, it stores a single local forward/adjoint field-history slot and reuses that slot for each assigned frequency. Thus the worker-side field-history memory scales with one frequency rather than with $N_f$; the serial path still stores all frequency histories because it performs all forward solves before the adjoint pass.
+The forward-modelling memory layout follows this scheduling model. Worker ranks allocate receiver-field and impedance buffers for one frequency slot and reuse that slot for every assigned frequency. Rank 0 keeps full impedance arrays over all frequencies because it assembles and writes the final MT response file. For frequencies solved locally on rank 0, the physical frequency index is also the storage index; for worker solves, the physical frequency index is sent through MPI while the worker stores temporary receiver fields and impedances in local slot zero. Worker completion messages contain the physical frequency index and the packed tensor entries $(Z_{xx},Z_{xy},Z_{yx},Z_{yy})$ at all receivers.
 
-The important scheduling point is that rank 0 does not wait for this adjoint solve before servicing other workers. Instead, the master event loop receives both forward completions and gradient completions with \texttt{MPI\_ANY\_SOURCE}. If a forward result arrives, rank 0 immediately constructs and returns the adjoint sources for that frequency. If a gradient result arrives, rank 0 accumulates it and assigns the worker another frequency if work remains. This pipelined schedule preserves the mathematical dependency
+In inversion mode the same frequency-level decomposition is used, but the forward and adjoint parts of a frequency are treated as a short pipeline rather than as one opaque blocking task. A worker first solves the forward problem for one assigned frequency and returns only the sampled receiver fields for the two source polarisations. Rank 0 then forms the impedance tensor, evaluates the residual contribution, and constructs the corresponding adjoint receiver sources. These sources are sent back to the same worker, which still owns the full forward field history needed for the gradient. The worker then solves the adjoint problem, adds that frequency's contribution to its rank-local gradient accumulator, and sends only a completion message containing the frequency index. Because a worker processes only one frequency at a time, it stores a single local receiver/source slot and a single local forward/adjoint field-history slot, reusing them for each assigned frequency. Thus the worker-side inversion memory scales with one frequency rather than with $N_f$.
+
+Rank 0 is no longer a pure scheduler during MPI inversion. It retains the full receiver/source and impedance history needed to assemble residuals and write the complete synthetic data file, but it also reserves local work and participates in forward and adjoint modelling. Its volumetric forward/adjoint field history is still one frequency slot in the MPI path, so rank 0 contributes useful computation without carrying full-volume field histories for all frequencies. The serial path remains different: with one MPI rank, all frequencies are solved locally and the full field history is kept because the code performs the forward pass before the adjoint pass.
+
+The important scheduling point is that rank 0 does not wait for one worker's adjoint solve before servicing other workers or computing its own reserved work. Instead, the master event loop receives both forward completions and adjoint-gradient completions with \texttt{MPI\_ANY\_SOURCE}. If a forward result arrives, rank 0 immediately constructs and returns the adjoint sources for that frequency. If an adjoint-gradient completion arrives, rank 0 assigns the worker another frequency if work remains, or sends a stop message. If no worker event is ready and unassigned frequencies remain, rank 0 processes a frequency locally. This pipelined schedule preserves the mathematical dependency
 \[
   \hbox{forward fields} \;\longrightarrow\; \hbox{adjoint sources} \;\longrightarrow\; \hbox{adjoint fields} \;\longrightarrow\; g_i ,
 \]
@@ -432,15 +436,16 @@ but avoids the inefficient pattern in which rank 0 blocks on one worker's adjoin
 The reduction step is straightforward because the objective and gradient are sums over frequency:
 \begin{equation}
   \Phi(m) = \sum_{i=1}^{N_f}\phi_i, \qquad
-  g(m) = \sum_{i=1}^{N_f}g_i .
+  g(m) = \sum_{r=0}^{P-1}g^{(r)}, \qquad
+  g^{(r)}=\sum_{\omega_i\in\Omega_r}g_i .
 \end{equation}
-Rank 0 accumulates these frequency-local quantities and then performs the model update. The amount of communication is small compared with the cost of the field solves: common data such as the mesh, receiver geometry, and conductivity model are broadcast once per inversion iteration. Forward-completion messages contain the frequency index and sampled receiver fields, adjoint-source messages contain receiver-local virtual sources, and gradient-completion messages contain the frequency-local model-gradient contribution.
+Rank 0 accumulates the objective contributions as it forms residuals. Gradient contributions are accumulated locally on each rank and combined by one final \texttt{MPI\_Reduce} at the end of each objective evaluation. The amount of communication is small compared with the cost of the field solves: common data such as the mesh, receiver geometry, and conductivity model are broadcast once per inversion iteration. Forward-completion messages contain the frequency index and sampled receiver fields, adjoint-source messages contain receiver-local virtual sources, and adjoint-gradient completion messages contain only the frequency index because the model-gradient vector is transferred by the final reduction.
 
-This design intentionally avoids a strict all-forward-then-all-adjoint phase. Such a two-phase strategy would require either storing many full-volume forward fields across workers until all forward tasks finish, transferring full fields through MPI, or recomputing forward fields before the adjoint calculation. The implemented pipeline keeps the full forward field history local to the worker that computed it, then uses it immediately in that frequency's adjoint-gradient calculation. Reusing a single field-history slot on each MPI worker further reduces memory pressure for multi-frequency inversions without changing the frequency-local gradient calculation.
+This design intentionally avoids a strict all-forward-then-all-adjoint phase. Such a two-phase strategy would require either storing many full-volume forward fields across ranks until all forward tasks finish, transferring full fields through MPI, or recomputing forward fields before the adjoint calculation. The implemented pipeline keeps the full forward field history local to the rank that computed it, then uses it immediately in that frequency's adjoint-gradient calculation. Reusing single receiver/source and field-history slots on worker ranks further reduces memory pressure for multi-frequency inversions without changing the frequency-local gradient calculation.
 
 This design follows the same broad frequency-parallel philosophy used in established MT inversion software such as ModEM \citep{EgbertKelbert2012,KelbertEtAl2014} and in parallel 3D inversion studies \citep{GrayverEtAl2015}, but uses dynamic scheduling to reduce idle time when the frequency costs are uneven. If individual frequencies become very cheap, several frequencies can be grouped into one task to amortise MPI overhead. For large 3D solves, assigning one frequency at a time usually gives better load balance.
 
-Figure~\ref{fig:mpi-frequency-scheduling} summarises the workflow. At each inversion iteration, the current model is shared by all ranks; the scheduler then assigns frequencies dynamically, handles forward and gradient completions as separate events, and performs the final reduction and model update after all frequency gradients have been accumulated.
+Figure~\ref{fig:mpi-frequency-scheduling} summarises the workflow. At each inversion iteration, the current model is shared by all ranks; the scheduler then assigns frequencies dynamically, handles forward and adjoint-gradient completions as separate events, lets rank 0 process reserved local frequencies, and performs the final reduction and model update after all rank-local gradients have been accumulated.
 
 \begin{figure}[t]
 \centering
@@ -457,7 +462,7 @@ Figure~\ref{fig:mpi-frequency-scheduling} summarises the workflow. At each inver
 \end{minipage}}\\[0.7em]
 $\Downarrow$\\[0.3em]
 \fbox{\begin{minipage}{0.88\linewidth}\centering
-\textbf{Rank 0}: keep frequency queue $\{\omega_1,\omega_2,\ldots,\omega_{N_f}\}$ and assign forward solves to idle workers
+\textbf{Rank 0}: keep frequency queue $\{\omega_1,\omega_2,\ldots,\omega_{N_f}\}$, assign worker tasks, and reserve local work
 \end{minipage}}\\[0.7em]
 $\Downarrow$\\[0.3em]
 \begin{tabular}{c c c}
@@ -466,7 +471,8 @@ $\Downarrow$\\[0.3em]
 forward $\omega_i$\\
 return receiver fields\\
 receive adjoint sources\\
-return $g_i$
+accumulate $g_i$ locally\\
+return done($\omega_i$)
 \end{minipage}}
 &
 \fbox{\begin{minipage}{0.26\linewidth}\centering
@@ -474,7 +480,8 @@ return $g_i$
 forward $\omega_j$\\
 return receiver fields\\
 receive adjoint sources\\
-return $g_j$
+accumulate $g_j$ locally\\
+return done($\omega_j$)
 \end{minipage}}
 &
 \fbox{\begin{minipage}{0.26\linewidth}\centering
@@ -482,15 +489,16 @@ return $g_j$
 forward $\omega_\ell$\\
 return receiver fields\\
 receive adjoint sources\\
-return $g_\ell$
+accumulate $g_\ell$ locally\\
+return done($\omega_\ell$)
 \end{minipage}}
 \\[0.35em]
-\multicolumn{3}{c}{rank 0 services forward and gradient completions as independent events}
+\multicolumn{3}{c}{rank 0 services worker events and computes reserved frequencies locally}
 \end{tabular}\\[0.8em]
 $\Downarrow$\\[0.3em]
 \fbox{\begin{minipage}{0.88\linewidth}\centering
-\textbf{Rank 0 reduction}: $\Phi(m^{(k)})=\sum_i\phi_i$, \quad
-$g(m^{(k)})=\sum_i g_i$
+\textbf{Final \texttt{MPI\_Reduce}}: $\Phi(m^{(k)})=\sum_i\phi_i$, \quad
+$g(m^{(k)})=\sum_r g^{(r)}$
 \end{minipage}}\\[0.7em]
 $\Downarrow$\\[0.3em]
 \fbox{\begin{minipage}{0.88\linewidth}\centering
@@ -499,7 +507,7 @@ $\Downarrow$\\[0.3em]
 \end{tabular}
 \end{minipage}%
 }
-\caption{Pipelined dynamic MPI scheduling over frequencies for inversion. Rank 0 assigns forward solves to workers, converts returned receiver fields into adjoint sources, and accumulates frequency-local gradients. Forward completions and gradient completions are handled independently, reducing idle time when individual frequencies have different runtimes.}
+\caption{Pipelined dynamic MPI scheduling over frequencies for inversion. Rank 0 assigns worker tasks, computes reserved local frequencies, converts returned receiver fields into adjoint sources, and combines rank-local gradients through one final \texttt{MPI\_Reduce}. Forward completions and adjoint-gradient completions are handled independently, reducing idle time when individual frequencies have different runtimes.}
 \label{fig:mpi-frequency-scheduling}
 \end{figure}
 
@@ -513,18 +521,19 @@ For clarity, the same strategy can be expressed as the following pseudocode:
 \medskip
 \textbf{Master rank 0:}\par
 1. Broadcast mesh, survey data, and the current model.\par
-2. Send one initial frequency to each worker.\par
-3. Receive events from any worker.\par
+2. Send initial frequencies to workers while reserving at least one frequency for local rank-0 computation when possible.\par
+3. Receive events from any worker; if no event is ready and unassigned work remains, solve one frequency locally.\par
 4. If the event is a forward completion, store the receiver fields, form the residual and adjoint sources, and send those sources back to the same worker.\par
-5. If the event is a gradient completion, add the frequency-local gradient contribution and send the worker the next unfinished frequency, or a stop message if no work remains.\par
-6. After all active workers have stopped, sum the objective and gradient contributions and perform the model update.\par
+5. If the event is an adjoint-gradient completion, send the worker the next unfinished frequency, or a stop message if no work remains.\par
+6. After all active workers have stopped, participate in one \texttt{MPI\_Reduce} that sums rank-local gradients, then perform the model update.\par
 \medskip
 \textbf{Worker rank $p>0$:}\par
 1. Receive a frequency index and value from rank 0.\par
 2. Solve the forward problem, storing the full forward field in the worker's reusable local field-history slot, and return the sampled receiver fields with the frequency index.\par
 3. Receive the adjoint receiver sources for the same frequency.\par
-4. Solve the adjoint problem in the same local slot, combine the local forward and adjoint fields, and return the frequency-local gradient contribution.\par
-5. Repeat until a stop message is received.
+4. Solve the adjoint problem in the same local slot, combine the local forward and adjoint fields, and add the result to the rank-local gradient accumulator.\par
+5. Send only an adjoint-gradient completion message with the frequency index, then repeat until a stop message is received.\par
+6. Join the final \texttt{MPI\_Reduce} for the accumulated gradient.
 \end{minipage}%
 }
 \end{center}

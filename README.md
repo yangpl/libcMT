@@ -204,11 +204,13 @@ The inversion template uses the same HDF5 model contract as the forward template
 ## Current Behavior Notes
 
 - MPI parallelization is implemented across frequencies.
-- In multi-rank forward modelling, rank 0 schedules work and collects results; worker ranks solve one frequency at a time.
+- In multi-rank forward modelling, rank 0 dynamically schedules frequencies, collects worker results, and also reserves local frequencies to solve itself.
+- Forward-modelling worker ranks reuse one receiver/impedance slot for each assigned frequency and send packed `Zxx`, `Zxy`, `Zyx`, and `Zyy` tensors back to rank 0.
+- Rank 0 keeps the full forward-modelling impedance history because it assembles and writes the final `mt_data.h5` output.
 - In multi-rank inversion, rank 0 dynamically assigns frequencies to workers, but also reserves local work and participates in forward/adjoint modelling.
-- Worker ranks allocate receiver/source buffers and forward/adjoint field caches for one frequency slot, then reuse those buffers for each assigned frequency.
-- Rank 0 keeps the full receiver/source and impedance history so residual assembly and `mt_data_syn.h5` output remain complete; in MPI mode it still uses one local volumetric field-history slot for its own solves.
-- Workers accumulate gradient contributions locally and send only frequency-index completion messages after adjoint solves. The full model gradient is combined once per objective evaluation with `MPI_Reduce`.
+- Inversion worker ranks allocate receiver/source buffers and forward/adjoint field caches for one frequency slot, then reuse those buffers for each assigned frequency.
+- Rank 0 keeps the full inversion receiver/source and impedance history so residual assembly and `mt_data_syn.h5` output remain complete; in MPI mode it still uses one local volumetric field-history slot for its own solves.
+- Inversion workers accumulate gradient contributions locally and send only frequency-index completion messages after adjoint solves. The full model gradient is combined once per objective evaluation with `MPI_Reduce`.
 - The current inversion parameterization is VTI in log-conductivity: one horizontal parameter for `sigma11 = sigma22`, and one vertical parameter for `sigma33`.
 - The code treats cells with resistivity greater than or equal to `rho_air` as air when applying inversion bounds and building the extended model.
 - Frequencies can be supplied directly with `freqs=...` or through `ffreqs=...` (the HDF5 frequency file must contain dataset `freqs`).
